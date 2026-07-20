@@ -1,0 +1,136 @@
+/* ============================================================================
+   AIBunkenChousa — Design Tokens
+   Paste into frontend/src/index.css (or import as its own file before App.css).
+   Apply data-mode="light|dark", data-theme="slate|graphite|sepia|nord",
+   data-density="compact|comfortable" on a root wrapper (e.g. <html> or #root).
+   Default theme is "slate" — it needs no [data-theme] selector, just [data-mode].
+============================================================================ */
+
+:root{
+  --font-ui:system-ui,-apple-system,'Segoe UI',Roboto,'Hiragino Sans','Noto Sans JP','Noto Sans SC','Microsoft YaHei',sans-serif;
+  --font-mono:ui-monospace,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace;
+
+  --fs-xs:11px;--fs-sm:12px;--fs-base:13px;--fs-md:14px;--fs-lg:15px;--fs-xl:17px;--fs-2xl:22px;
+  --lh-tight:1.3;--lh:1.5;--lh-read:1.62;--lh-cjk:1.8;
+
+  --sp-1:4px;--sp-2:8px;--sp-3:12px;--sp-4:16px;--sp-5:20px;--sp-6:24px;--sp-8:32px;
+
+  --r-sm:4px;--r:6px;--r-md:8px;--r-lg:10px;--r-pill:999px;
+
+  --dur-fast:110ms;--dur:180ms;--ease:cubic-bezier(.32,.72,.35,1);
+
+  --row-py:5px;
+}
+
+[data-density="comfortable"]{ --row-py:9px; }
+
+/* ============================================================================
+   NEUTRALS + ACCENT — default theme: slate
+============================================================================ */
+
+[data-mode="light"]{
+  --bg:#f4f6f8;--surface:#ffffff;--surface-2:#f0f2f5;--surface-3:#e8ebf0;
+  --border:#e5e8ee;--border-strong:#d3d9e2;
+  --ink:#1a2230;--ink-2:#5a6474;--ink-3:#8b94a4;
+  --accent:#4f52d6;--accent-hover:#3f42c2;--accent-weak:#ecedfb;--accent-ink:#3a3db0;
+
+  --sh-1:0 1px 2px rgba(20,26,40,.06);
+  --sh-2:0 4px 16px rgba(20,26,40,.10),0 1px 3px rgba(20,26,40,.06);
+  --sh-3:0 24px 60px rgba(15,20,32,.28),0 4px 12px rgba(15,20,32,.14);
+  --hl:rgba(255,201,0,.55);--hl-edge:#e0a800;
+
+  /* semantic scales */
+  --st-supportive-bg:#d6efe8;--st-supportive-ink:#0c6f5f;
+  --st-critical-bg:#fbe0dd;--st-critical-ink:#c02e24;
+  --st-mixed-bg:#fce6cd;--st-mixed-ink:#a05708;
+  --st-neutral-bg:#f6edc7;--st-neutral-ink:#856611;
+  --st-na-bg:transparent;--st-na-ink:#8b94a4;--st-na-border:#cfd5de;
+
+  --ver-verified-bg:#d6efe8;--ver-verified-ink:#0c6f5f;--ver-verified-solid:#12a184;
+  --ver-mismatch-bg:#fce6cd;--ver-mismatch-ink:#a05708;--ver-mismatch-solid:#d99a17;
+  --ver-unverified-bg:#fbe0dd;--ver-unverified-ink:#c02e24;--ver-unverified-solid:#d84437;
+  --ver-short-bg:#eceff3;--ver-short-ink:#5a6474;--ver-short-solid:#9aa4b2;
+
+  --trust-high:#12a184;--trust-mid:#d99a17;--trust-low:#d84437;--trust-track:#e2e6ec;
+}
+
+[data-mode="dark"]{
+  --bg:#0d1016;--surface:#141a22;--surface-2:#1a212b;--surface-3:#222b37;
+  --border:#26303c;--border-strong:#37434f;
+  --ink:#e6eaf1;--ink-2:#9aa4b2;--ink-3:#68727f;
+  --accent:#7f82ff;--accent-hover:#9599ff;--accent-weak:#1d2140;--accent-ink:#bcbfff;
+
+  --sh-1:0 1px 2px rgba(0,0,0,.4);
+  --sh-2:0 6px 20px rgba(0,0,0,.5),0 1px 3px rgba(0,0,0,.4);
+  --sh-3:0 28px 64px rgba(0,0,0,.66),0 6px 16px rgba(0,0,0,.5);
+  --hl:rgba(255,206,0,.42);--hl-edge:#d8a400;
+
+  --st-supportive-bg:#0f342e;--st-supportive-ink:#4fd8ba;
+  --st-critical-bg:#391e1d;--st-critical-ink:#f0857b;
+  --st-mixed-bg:#372817;--st-mixed-ink:#e2a75f;
+  --st-neutral-bg:#332e17;--st-neutral-ink:#d8c25f;
+  --st-na-bg:transparent;--st-na-ink:#68727f;--st-na-border:#37434f;
+
+  --ver-verified-bg:#0f342e;--ver-verified-ink:#4fd8ba;--ver-verified-solid:#23c39c;
+  --ver-mismatch-bg:#372817;--ver-mismatch-ink:#e2a75f;--ver-mismatch-solid:#e0b03a;
+  --ver-unverified-bg:#391e1d;--ver-unverified-ink:#f0857b;--ver-unverified-solid:#ec6a5e;
+  --ver-short-bg:#22262e;--ver-short-ink:#9aa4b2;--ver-short-solid:#68727f;
+
+  --trust-high:#1fc39a;--trust-mid:#e0b03a;--trust-low:#ec6a5e;--trust-track:#2a333f;
+}
+
+/* ============================================================================
+   THEME: graphite (neutrals + accent only — semantic scales are shared,
+   set once above; graphite/sepia/nord only override bg/surface/ink/accent)
+============================================================================ */
+
+[data-theme="graphite"][data-mode="light"]{
+  --bg:#f2f1ef;--surface:#ffffff;--surface-2:#f1efec;--surface-3:#e8e5e0;
+  --border:#e6e3dd;--border-strong:#d6d1c8;--ink:#20211f;--ink-2:#66655f;--ink-3:#9a988f;
+  --accent:#2f6df6;--accent-hover:#215fe0;--accent-weak:#e6effe;--accent-ink:#1f56c4;
+}
+[data-theme="graphite"][data-mode="dark"]{
+  --bg:#111110;--surface:#1a1a18;--surface-2:#212120;--surface-3:#2a2a27;
+  --border:#2c2c29;--border-strong:#3d3d39;--ink:#eceae4;--ink-2:#a3a199;--ink-3:#6f6d66;
+  --accent:#5b90ff;--accent-hover:#75a2ff;--accent-weak:#182338;--accent-ink:#a9c4ff;
+}
+
+/* THEME: sepia (reading-warm) */
+[data-theme="sepia"][data-mode="light"]{
+  --bg:#f3ece0;--surface:#fbf6ec;--surface-2:#f1e8d8;--surface-3:#e9ddc8;
+  --border:#e5d8c1;--border-strong:#d6c4a5;--ink:#33291b;--ink-2:#6e5f49;--ink-3:#9c8a6f;
+  --accent:#a35a1f;--accent-hover:#8c4a15;--accent-weak:#f5e3cf;--accent-ink:#8a4a17;
+}
+[data-theme="sepia"][data-mode="dark"]{
+  --bg:#191510;--surface:#221c14;--surface-2:#29221a;--surface-3:#332a20;
+  --border:#382e22;--border-strong:#4a3d2d;--ink:#efe6d6;--ink-2:#b3a488;--ink-3:#7e715c;
+  --accent:#e08a45;--accent-hover:#eb9c5c;--accent-weak:#33261a;--accent-ink:#f0a869;
+}
+
+/* THEME: nord (cool) */
+[data-theme="nord"][data-mode="light"]{
+  --bg:#eceff4;--surface:#ffffff;--surface-2:#e9edf3;--surface-3:#dfe4ec;
+  --border:#dce1ea;--border-strong:#c6cedb;--ink:#2e3440;--ink-2:#4c566a;--ink-3:#8b93a3;
+  --accent:#5e81ac;--accent-hover:#4c6f9a;--accent-weak:#e5edf6;--accent-ink:#456695;
+}
+[data-theme="nord"][data-mode="dark"]{
+  --bg:#242933;--surface:#2e3440;--surface-2:#353c4a;--surface-3:#3f4757;
+  --border:#3b4252;--border-strong:#4c566a;--ink:#eceff4;--ink-2:#aeb6c6;--ink-3:#727b8c;
+  --accent:#88c0d0;--accent-hover:#9ccede;--accent-weak:#2b3a44;--accent-ink:#a7d3e0;
+}
+
+/* ============================================================================
+   GLOBAL NICETIES (scrollbars, selection, keyframes) — scope to your root
+   wrapper class if you don't want these page-wide.
+============================================================================ */
+
+::selection{ background:var(--accent-weak); color:var(--accent-ink); }
+*::-webkit-scrollbar{ width:11px; height:11px; }
+*::-webkit-scrollbar-thumb{ background:var(--border-strong); border-radius:6px; border:3px solid transparent; background-clip:padding-box; }
+*::-webkit-scrollbar-thumb:hover{ background:var(--ink-3); background-clip:padding-box; border:3px solid transparent; }
+*::-webkit-scrollbar-track{ background:transparent; }
+
+@keyframes aibc-spin{ to{ transform:rotate(360deg); } }
+@keyframes aibc-indeterminate{ 0%{ left:-40%; } 100%{ left:100%; } }
+@keyframes aibc-fade{ from{ opacity:0; transform:translateY(4px); } to{ opacity:1; transform:none; } }
+@keyframes aibc-slide{ from{ opacity:0; transform:translateX(14px); } to{ opacity:1; transform:none; } }

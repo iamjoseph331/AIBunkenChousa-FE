@@ -1,0 +1,585 @@
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+
+export type Lang = 'en' | 'ja'
+
+/** One bold-lead bullet in the SLR note. */
+export interface Bullet {
+  b: string
+  t: string
+}
+export interface SlrGroup {
+  heading: string
+  lede?: string
+  bullets?: Bullet[]
+  ordered?: boolean
+  para?: string
+}
+export interface Slr {
+  title: string
+  lede: string
+  groups: SlrGroup[]
+  closing: string
+}
+
+// ---------------------------------------------------------------------------
+// English is the source of truth; `ja` is typed `Dict` so it must stay complete.
+// ---------------------------------------------------------------------------
+const en = {
+  nav: {
+    home: 'Home',
+    report: 'Report',
+    citations: 'Citations',
+    concepts: 'Concepts',
+  },
+  controls: {
+    compact: 'Compact',
+    comfortable: 'Comfortable',
+    lightMode: 'Switch to dark mode',
+    darkMode: 'Switch to light mode',
+    language: 'Language',
+    claudeApiKey: 'Claude API key',
+    claudeApiKeyPlaceholder: 'sk-ant-...',
+    claudeApiKeySavedPlaceholder: 'Key saved',
+    saveClaudeApiKey: 'Save key',
+    claudeApiKeySavedToast: 'Claude API key saved.',
+    claudeApiKeyClearedToast: 'Claude API key cleared.',
+  },
+  stance: {
+    supportive: 'supportive',
+    critical: 'critical',
+    mixed: 'mixed',
+    neutral: 'neutral',
+    not_addressed: 'not addressed',
+  },
+  confidence: {
+    high: 'high',
+    medium: 'medium',
+    low: 'low',
+  },
+  status: {
+    verified: 'verified',
+    page_mismatch: 'page fixed',
+    unverified: 'unverified',
+    too_short: 'too short',
+  },
+  home: {
+    title: 'AIBunkenChousa — verifiable literature review',
+    subtitle:
+      'Batch-process academic PDFs into query-aware reports where every claim is traceable to a verified page in the source. Below: what each report column means, and where your papers live.',
+    run: 'Start a new investigation',
+    runHelp:
+      'Enter a research question. Every paper in the corpus is analysed and scored against it — stance, relevance, and evidence — in a new run.',
+    runPlaceholder: 'e.g. barriers to adopting electronic health records',
+    runCta: 'New run →',
+    glossary: 'What the columns mean',
+    folder: 'Corpus folder',
+    folderHelp:
+      'The folder AIBunkenChousa reads PDFs from. Point it anywhere on this machine — papers never leave it except as text sent to the model.',
+    save: 'Save folder',
+    saving: 'Saving…',
+    pdfsFound: 'PDFs found',
+    missing: 'This folder does not exist',
+    upload: 'Add papers',
+    uploadHelp:
+      'Drop PDF files here (or click to browse) to copy them into the corpus folder. They’ll be picked up by the next run.',
+    drop: 'Drop PDFs here or click to browse',
+    dropActive: 'Release to add these PDFs',
+    uploading: 'Uploading…',
+  },
+  overview: {
+    heading: 'Corpus at a glance',
+    subtitle: 'A summary of your most recent completed run.',
+    empty: 'No completed runs yet — start one above to see the corpus summary.',
+    run: 'Run',
+    papers: 'papers analysed',
+    stanceMix: 'Stance mix',
+    coverage: 'Query coverage',
+    addressed: 'addressed',
+    notAddressed: 'not addressed',
+    verification: 'Quote verification',
+    verified: 'verified',
+    ofQuotes: 'of quotes machine-verified',
+    trustDist: 'Trust distribution',
+    trustHigh: 'high (≥95%)',
+    trustMid: 'mid (80–95%)',
+    trustLow: 'low (<80%)',
+    cost: 'Total spend',
+  },
+  report: {
+    // column headers
+    sim: 'Sim.',
+    paper: 'Paper',
+    year: 'Year',
+    stance: 'Stance',
+    rel: 'Rel.',
+    trust: 'Trust',
+    conf: 'Conf.',
+    method: 'Method',
+    location: 'Location',
+    extraction: 'Extraction',
+    cost: '$',
+    // controls
+    filterPapers: 'Filter papers…',
+    allStances: 'All stances',
+    allYears: 'All years',
+    rerankPlaceholder: 'Re-rank by query… (free)',
+    rerank: 'Re-rank',
+    clear: 'clear',
+    rerankNotePre: 'Sorted by embedding similarity to',
+    rerankNotePost: '— no LLM cost',
+    rerankFailed: 'Re-rank failed:',
+    noMatch: 'No papers match.',
+    // subtoolbar / run meta
+    runLabel: 'Run',
+    noQuery: '(no query)',
+    newRun: '+ New run',
+    query: 'Query',
+    model: 'Model',
+    lang: 'Lang',
+    mode: 'Mode',
+    total: 'Total',
+    time: 'Time',
+    loadingRun: 'Loading run…',
+    noRuns: 'No runs yet — start one with “+ New run”.',
+    hintKeys: '↑/↓ or j/k to move · Enter to open · Esc to close',
+  },
+  drawer: {
+    relevance: 'Relevance',
+    confidence: 'Confidence',
+    trust: 'Trust',
+    extraction: 'Extraction',
+    lowQuality: '⚠ Low-extraction-quality pages:',
+    stance: 'Stance',
+    summary: 'Summary',
+    metadata: 'Metadata',
+    notReported: 'not reported',
+    noEvidence: 'no evidence',
+    loading: 'Loading analysis…',
+    failed: 'Failed to load:',
+  },
+  newRun: {
+    title: 'New run',
+    query: 'Query',
+    queryOptional: '(optional — blank gives a neutral summary)',
+    queryPlaceholder: 'e.g. interoperability of public-sector health systems',
+    language: 'Language',
+    model: 'Model',
+    mode: 'Mode',
+    limit: 'Limit',
+    all: 'all',
+    langAuto: 'Auto (match query)',
+    modeSync: 'Sync (immediate)',
+    modeBatch: 'Batch (−50%, ~1h)',
+    papers: 'papers',
+    tokensIn: 'in',
+    tokensOut: 'out tokens',
+    batched: 'batched',
+    time: 'time',
+    noTimeHistory: 'no history yet',
+    estimate: 'Estimate cost',
+    estimating: 'Estimating…',
+    start: 'Start run',
+    running: 'Running…',
+    analyzing: 'Extracting & analyzing papers…',
+    batchWaiting: 'Submitted to batch — waiting for results…',
+    viewRun: 'View run',
+    error: 'Error',
+  },
+  cite: {
+    build: 'Build citation graph',
+    rebuild: 'Rebuild citation graph',
+    building: 'Building…',
+    grobidUp: 'GROBID connected',
+    grobidDown: 'GROBID offline',
+    recheck: 'Recheck',
+    processed: 'processed',
+    edges: 'edges',
+    noGraph: 'No citation graph yet.',
+    noGraphRunFirst: 'Run an analysis first so there are papers to link.',
+    noGraphBuild:
+      'Click “Build citation graph” — GROBID extracts each paper’s reference list and we draw the intra-corpus citations.',
+    grobidHint: 'Start GROBID, then click',
+    citedBy: 'Cited by',
+    cites: 'Cites',
+    externalRefs: 'External references',
+    inDegree: 'cited by (in corpus)',
+    outDegree: 'cites (in corpus)',
+    extRefs: 'external refs',
+    legendCited: 'cited by others',
+    legendNotCited: 'not cited in corpus',
+    legendCites: 'cites',
+    legendHint: 'bigger = cited more · drag to rearrange',
+    untitledRef: '(untitled reference)',
+    hideIsolated: 'Hide unconnected',
+    showAll: 'Show all',
+    progressLabel: 'Extracting references (GROBID)…',
+  },
+  concept: {
+    run: 'Run',
+    start: 'Start concept graph',
+    rebuild: 'Rebuild concept graph',
+    building: 'Building…',
+    estimating: 'Estimating…',
+    papers: 'papers',
+    supporting: 'supporting',
+    opposing: 'opposing',
+    neutral: 'neutral',
+    newPairs: 'new pairs to classify',
+    cached: 'cached',
+    with: 'with',
+    cancel: 'Cancel',
+    classifyBuild: 'Classify & build',
+    upToDate: 'Up to date',
+    noPapers: 'No papers to map.',
+    noPapersSub: 'Pick a run with analysed papers.',
+    notBuilt: 'Concept graph not built for this run yet.',
+    notBuiltSub:
+      'Click Start concept graph: by default only papers linked by citations are compared, then a cheap model classifies each pair as supporting / opposing / neutral. You’ll see the cost before anything runs.',
+    seedLabel: 'Candidate pairs',
+    seedCitation: 'Citation-linked',
+    seedSimilarity: 'Similarity',
+    seedHint: 'Citation-linked: only compare papers that cite each other (fast, no embeddings). Similarity: also compare topically-close papers (needs every paper embedded first).',
+    relations: 'Relations',
+    noRelations: 'No supporting/opposing relations to other papers in this graph.',
+    legendSupporting: 'supporting',
+    legendOpposing: 'opposing',
+    legendNodeColor: 'node color = stance · size = relevance',
+    legendHint: 'click an edge for the rationale · drag to rearrange',
+    progressLabel: 'Classifying candidate pairs…',
+  },
+  pdf: {
+    prev: '‹ Prev',
+    next: 'Next ›',
+    page: 'Page',
+    failed: 'Failed to load PDF:',
+    open: 'Preview PDF',
+  },
+  slr: {
+    title: 'Why this tool for systematic literature review',
+    lede: 'Systematic reviews fail in two places: you can’t read everything, and you can’t trust a summary you didn’t verify. This tool is built to fix both — screen a large corpus fast, and make every claim it surfaces checkable in seconds.',
+    groups: [
+      {
+        heading: 'Built to handle a large pile of papers',
+        bullets: [
+          { b: 'Batch-processes hundreds of PDFs', t: 'in one run, not one at a time. Point it at a folder; it ingests the whole corpus.' },
+          { b: 'Nothing is redone.', t: 'Papers are content-hashed and every analysis is keyed by (paper, query, prompt version, model). Re-runs skip finished work and crashes resume where they stopped — so a 300-paper run is safe to interrupt.' },
+          { b: 'Cost is estimated before you spend it,', t: 'and the expensive LLM passes are gated behind an explicit Start + cost confirmation. Screening scales without scaling your bill blindly.' },
+          { b: 'Free query re-ranking:', t: 'local embeddings re-order the whole corpus against a new question instantly, no API cost — so one processed corpus answers many queries.' },
+        ],
+      },
+      {
+        heading: 'Reliability comes from layered checking, not one AI answer',
+        lede: 'Every claim passes through independent checks before you see it:',
+        ordered: true,
+        bullets: [
+          { b: 'Faithful extraction', t: '— text is pulled from each PDF in true reading order, so quotes correspond to what’s actually on the page.' },
+          { b: 'Forced evidence', t: '— the model may not assert anything without attaching a {page, quote}. No quote, no claim.' },
+          { b: 'Mechanical verification', t: '— each quote is fuzzy-matched back against the source PDF text. It earns a status: verified / page-mismatch / unverified / too-short. Fabricated or misattributed quotes are caught automatically, before display.' },
+          { b: 'Click-to-page audit', t: '— every verified quote links to its exact page with the passage highlighted, so a human confirms the interpretation in seconds.' },
+          { b: 'Cross-paper agreement, also grounded', t: '— the concept graph classifies papers as supporting / opposing / neutral, and every edge carries a one-line justification. Provenance holds even in the synthesis view.' },
+        ],
+        para: 'The point of the layers is that no single component is trusted on its own. Extraction can’t invent, the model can’t assert without a quote, the quote is checked against the real text, and the human sees the quote regardless. Each layer catches what the previous one might miss.',
+      },
+      {
+        heading: 'What it is — and isn’t',
+        para: 'A screening and triage aid that makes a large literature verifiable and reproducible, so you can decide what to read closely. It is not a replacement for reading the papers that matter — it’s what gets you to them, honestly.',
+      },
+    ] as SlrGroup[],
+    closing: '',
+  } as Slr,
+}
+
+export type Dict = typeof en
+
+const ja: Dict = {
+  nav: {
+    home: 'ホーム',
+    report: 'レポート',
+    citations: '引用',
+    concepts: '関係図',
+  },
+  controls: {
+    compact: 'コンパクト',
+    comfortable: 'ゆったり',
+    lightMode: 'ダークモードに切替',
+    darkMode: 'ライトモードに切替',
+    language: '言語',
+    claudeApiKey: 'Claude APIキー',
+    claudeApiKeyPlaceholder: 'sk-ant-...',
+    claudeApiKeySavedPlaceholder: 'キー保存済み',
+    saveClaudeApiKey: 'キーを保存',
+    claudeApiKeySavedToast: 'Claude APIキーを保存しました。',
+    claudeApiKeyClearedToast: 'Claude APIキーを削除しました。',
+  },
+  stance: {
+    supportive: '支持',
+    critical: '批判',
+    mixed: '両論',
+    neutral: '中立',
+    not_addressed: '言及なし',
+  },
+  confidence: {
+    high: '高',
+    medium: '中',
+    low: '低',
+  },
+  status: {
+    verified: '検証済み',
+    page_mismatch: 'ページ修正',
+    unverified: '未検証',
+    too_short: '短すぎ',
+  },
+  home: {
+    title: 'AIBunkenChousa — 検証可能な文献調査',
+    subtitle:
+      '学術PDFを一括処理し、すべての主張が出典の検証済みページまで辿れるクエリ対応レポートを生成します。以下では各レポート列の意味と、論文の保存先を説明します。',
+    run: '新しい調査を開始',
+    runHelp:
+      'リサーチクエスチョンを入力してください。コーパス内の全論文が、そのクエリに対して立場・関連度・根拠の観点で分析・採点されます（新しい実行として）。',
+    runPlaceholder: '例：電子カルテ導入の障壁',
+    runCta: '実行を開始 →',
+    glossary: '各列の意味',
+    folder: '論文フォルダ',
+    folderHelp:
+      'AIBunkenChousaがPDFを読み込むフォルダです。このマシン上のどこでも指定できます。論文はモデルへ送るテキスト以外、フォルダの外に出ません。',
+    save: 'フォルダを保存',
+    saving: '保存中…',
+    pdfsFound: '見つかったPDF',
+    missing: 'このフォルダは存在しません',
+    upload: '論文を追加',
+    uploadHelp:
+      'PDFファイルをここにドロップ（またはクリックして選択）すると論文フォルダにコピーされます。次回の実行時に取り込まれます。',
+    drop: 'PDFをここにドロップ、またはクリックして選択',
+    dropActive: 'ドロップして追加',
+    uploading: 'アップロード中…',
+  },
+  overview: {
+    heading: 'コーパスの概要',
+    subtitle: '直近の完了した実行のサマリーです。',
+    empty: '完了した実行がまだありません。上から実行を開始すると概要が表示されます。',
+    run: '実行',
+    papers: '件を分析',
+    stanceMix: '立場の内訳',
+    coverage: 'クエリ該当率',
+    addressed: '言及あり',
+    notAddressed: '言及なし',
+    verification: '引用の検証',
+    verified: '検証済み',
+    ofQuotes: 'の引用が機械検証済み',
+    trustDist: '信頼度の分布',
+    trustHigh: '高（95%以上）',
+    trustMid: '中（80〜95%）',
+    trustLow: '低（80%未満）',
+    cost: '総コスト',
+  },
+  report: {
+    sim: '類似度',
+    paper: '論文',
+    year: '年',
+    stance: '立場',
+    rel: '関連度',
+    trust: '信頼度',
+    conf: '確信度',
+    method: '手法',
+    location: '地域',
+    extraction: '抽出品質',
+    cost: '費用',
+    filterPapers: '論文を絞り込み…',
+    allStances: 'すべての立場',
+    allYears: 'すべての年',
+    rerankPlaceholder: 'クエリで並べ替え…（無料）',
+    rerank: '並べ替え',
+    clear: 'クリア',
+    rerankNotePre: '埋め込み類似度で並べ替え：',
+    rerankNotePost: '— LLMコストなし',
+    rerankFailed: '並べ替えに失敗：',
+    noMatch: '該当する論文がありません。',
+    runLabel: '実行',
+    noQuery: '（クエリなし）',
+    newRun: '＋ 新規実行',
+    query: 'クエリ',
+    model: 'モデル',
+    lang: '言語',
+    mode: 'モード',
+    total: '合計',
+    time: '時間',
+    loadingRun: '実行を読み込み中…',
+    noRuns: 'まだ実行がありません。「＋ 新規実行」から開始してください。',
+    hintKeys: '↑/↓ または j/k で移動 · Enter で開く · Esc で閉じる',
+  },
+  drawer: {
+    relevance: '関連度',
+    confidence: '確信度',
+    trust: '信頼度',
+    extraction: '抽出品質',
+    lowQuality: '⚠ 抽出品質の低いページ：',
+    stance: '立場',
+    summary: '要約',
+    metadata: 'メタデータ',
+    notReported: '記載なし',
+    noEvidence: '根拠なし',
+    loading: '分析を読み込み中…',
+    failed: '読み込みに失敗：',
+  },
+  newRun: {
+    title: '新規実行',
+    query: 'クエリ',
+    queryOptional: '（任意 — 空欄なら中立的な要約）',
+    queryPlaceholder: '例：公共部門の医療システムの相互運用性',
+    language: '言語',
+    model: 'モデル',
+    mode: 'モード',
+    limit: '上限',
+    all: 'すべて',
+    langAuto: '自動（クエリに合わせる）',
+    modeSync: '同期（即時）',
+    modeBatch: 'バッチ（−50%、約1時間）',
+    papers: '論文',
+    tokensIn: '入力',
+    tokensOut: '出力トークン',
+    batched: 'バッチ時',
+    time: '時間',
+    noTimeHistory: '履歴なし',
+    estimate: 'コストを見積り',
+    estimating: '見積り中…',
+    start: '実行を開始',
+    running: '実行中…',
+    analyzing: '論文を抽出・分析中…',
+    batchWaiting: 'バッチに送信済み — 結果を待機中…',
+    viewRun: '実行を表示',
+    error: 'エラー',
+  },
+  cite: {
+    build: '引用グラフを作成',
+    rebuild: '引用グラフを再作成',
+    building: '作成中…',
+    grobidUp: 'GROBID 接続済み',
+    grobidDown: 'GROBID オフライン',
+    recheck: '再確認',
+    processed: '処理済み',
+    edges: 'エッジ',
+    noGraph: '引用グラフはまだありません。',
+    noGraphRunFirst: 'まず分析を実行し、リンクする論文を用意してください。',
+    noGraphBuild:
+      '「引用グラフを作成」をクリックすると、GROBID が各論文の参考文献リストを抽出し、コーパス内の引用関係を描画します。',
+    grobidHint: 'GROBID を起動してからクリック：',
+    citedBy: '被引用',
+    cites: '引用',
+    externalRefs: '外部参照',
+    inDegree: '被引用（コーパス内）',
+    outDegree: '引用（コーパス内）',
+    extRefs: '外部参照',
+    legendCited: '他から引用されている',
+    legendNotCited: 'コーパス内で被引用なし',
+    legendCites: '引用する',
+    legendHint: '大きいほど被引用が多い · ドラッグで再配置',
+    untitledRef: '（タイトルなしの参照）',
+    hideIsolated: '孤立ノードを隠す',
+    showAll: 'すべて表示',
+    progressLabel: '参考文献を抽出中（GROBID）…',
+  },
+  concept: {
+    run: '実行',
+    start: '関係をグラフ開始',
+    rebuild: '関係図を再作成',
+    building: '作成中…',
+    estimating: '見積り中…',
+    papers: '論文',
+    supporting: '支持',
+    opposing: '対立',
+    neutral: '中立',
+    newPairs: '件の新規ペアを分類',
+    cached: 'キャッシュ済み',
+    with: '·',
+    cancel: 'キャンセル',
+    classifyBuild: '分類して作成',
+    upToDate: '最新の状態',
+    noPapers: 'マップする論文がありません。',
+    noPapersSub: '分析済み論文のある実行を選択してください。',
+    notBuilt: 'この実行の関係図はまだ作成されていません。',
+    notBuiltSub:
+      '「関係をグラフ開始」をクリック：既定では引用でつながった論文のみを比較し、安価なモデルが各ペアを支持／対立／中立に分類します。実行前にコストが表示されます。',
+    seedLabel: '候補ペア',
+    seedCitation: '引用でつながる',
+    seedSimilarity: '類似度',
+    seedHint: '「引用でつながる」：互いに引用し合う論文のみ比較（高速・埋め込み不要）。「類似度」：話題が近い論文も比較（全論文の埋め込みが必要）。',
+    relations: '関係',
+    noRelations: 'このグラフ内の他論文との支持／対立関係はありません。',
+    legendSupporting: '支持',
+    legendOpposing: '対立',
+    legendNodeColor: 'ノードの色 = 立場 · 大きさ = 関連度',
+    legendHint: 'エッジをクリックで根拠を表示 · ドラッグで再配置',
+    progressLabel: '候補ペアを分類中…',
+  },
+  pdf: {
+    prev: '‹ 前へ',
+    next: '次へ ›',
+    page: 'ページ',
+    failed: 'PDFの読み込みに失敗：',
+    open: 'PDFをプレビュー',
+  },
+  slr: {
+    title: 'なぜ本ツールが体系的文献レビューに適しているか',
+    lede: '体系的レビューは二つの点で破綻します。すべてを読み切れないこと、そして自分で検証していない要約を信用できないことです。本ツールはその両方を解決するよう作られています — 大規模なコーパスを高速にスクリーニングし、提示するすべての主張を数秒で確認できるようにします。',
+    groups: [
+      {
+        heading: '大量の論文を扱えるよう設計',
+        bullets: [
+          { b: '数百のPDFを一括処理', t: '。一件ずつではなく一回の実行で。フォルダを指定すれば、コーパス全体を取り込みます。' },
+          { b: '同じ処理は繰り返しません。', t: '論文はコンテンツハッシュ化され、各分析は（論文・クエリ・プロンプト版・モデル）でキー付けされます。再実行は完了済みの作業を飛ばし、クラッシュは中断点から再開します — 300件の実行も安全に中断できます。' },
+          { b: 'コストは支出前に見積もり、', t: '高価なLLM処理は明示的な開始＋コスト確認の後ろに置かれます。スクリーニングを拡大しても、請求が無闇に膨らみません。' },
+          { b: '無料のクエリ再ランキング：', t: 'ローカル埋め込みが新しい問いに対してコーパス全体を即座に並べ替えます。API費用はかかりません — 一度処理したコーパスで多数のクエリに答えられます。' },
+        ],
+      },
+      {
+        heading: '信頼性は単一のAI回答ではなく、多層のチェックから',
+        lede: 'すべての主張は、表示される前に独立したチェックを通過します：',
+        ordered: true,
+        bullets: [
+          { b: '忠実な抽出', t: '— テキストは各PDFから正しい読み順で取り出されるため、引用はページ上の実際の内容に対応します。' },
+          { b: '根拠の強制', t: '— モデルは{ページ, 引用}を添えずに何も主張できません。引用なくして主張なし。' },
+          { b: '機械的検証', t: '— 各引用は出典PDFの本文とあいまい照合されます。そしてステータスを得ます：検証済み／ページ不一致／未検証／短すぎ。捏造や誤帰属の引用は表示前に自動的に検出されます。' },
+          { b: 'クリックでページ監査', t: '— 検証済みの各引用は該当箇所をハイライトした正確なページにリンクし、人が数秒で解釈を確認できます。' },
+          { b: '論文間の一致も根拠付き', t: '— 概念グラフは論文を支持／対立／中立に分類し、各エッジは一行の根拠を持ちます。統合ビューでも来歴が保たれます。' },
+        ],
+        para: '多層である要点は、どの単一要素も単独では信頼されないことです。抽出は捏造できず、モデルは引用なしに主張できず、引用は実際の本文と照合され、人は必ず引用そのものを見ます。各層は前の層が見落としたものを捉えます。',
+      },
+      {
+        heading: '本ツールであるもの・ないもの',
+        para: '大規模な文献を検証可能・再現可能にし、どれを精読すべきか判断できるようにするスクリーニング・トリアージ支援ツールです。重要な論文を読むことの代替ではありません — 誠実に、そこへ到達させるためのものです。',
+      },
+    ] as SlrGroup[],
+    closing: '',
+  } as Slr,
+}
+
+const DICTS: Record<Lang, Dict> = { en, ja }
+
+interface LangCtx {
+  lang: Lang
+  setLang: (l: Lang) => void
+  t: Dict
+}
+const Ctx = createContext<LangCtx | null>(null)
+
+export function LangProvider({ children }: { children: ReactNode }) {
+  const [lang, setLang] = useState<Lang>(
+    () => (localStorage.getItem('aibc-lang') as Lang) || 'en',
+  )
+  useEffect(() => {
+    localStorage.setItem('aibc-lang', lang)
+    document.documentElement.lang = lang
+  }, [lang])
+  return <Ctx.Provider value={{ lang, setLang, t: DICTS[lang] }}>{children}</Ctx.Provider>
+}
+
+export function useLang(): LangCtx {
+  const ctx = useContext(Ctx)
+  if (!ctx) throw new Error('useLang must be used within LangProvider')
+  return ctx
+}
+
+/** Shorthand: just the strings for the current language. */
+export function useT(): Dict {
+  return useLang().t
+}
