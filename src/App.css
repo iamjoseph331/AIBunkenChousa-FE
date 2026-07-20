@@ -1275,6 +1275,24 @@
   border-bottom: 1px solid var(--border);
 }
 .cite-detail-stats b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.app .cite-pdf-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  height: auto;
+  margin-top: 12px;
+  padding: 8px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-sm);
+  color: var(--accent);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  text-transform: none;
+}
+.app .cite-pdf-btn:hover { background: var(--accent); color: var(--surface); }
 .cite-detail-list { margin-top: 12px; }
 .cite-detail-list h4 {
   margin: 0 0 6px;
