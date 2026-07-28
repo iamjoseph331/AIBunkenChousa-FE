@@ -176,7 +176,7 @@ export default function ConceptGraph() {
             </select>
           </label>
           <button className="primary" onClick={askBuild} disabled={building || estimating || runId == null}>
-            {estimating ? t.concept.estimating : building ? t.concept.building : built ? t.concept.rebuild : t.concept.start}
+            {estimating ? t.concept.estimating : building ? t.concept.building : built ? t.concept.update : t.concept.start}
           </button>
           <div className="seed-toggle" role="group" aria-label={t.concept.seedLabel} title={t.concept.seedHint}>
             <button

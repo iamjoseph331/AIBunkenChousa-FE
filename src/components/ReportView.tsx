@@ -3,6 +3,7 @@ import { api, type ReportRow, type Run, type RunDetail } from '../api'
 import ReportTable from './ReportTable'
 import DetailDrawer from './DetailDrawer'
 import NewRunForm from './NewRunForm'
+import AddPapersForm from './AddPapersForm'
 import PdfViewer from './PdfViewer'
 import { useT } from '../i18n'
 import { formatDuration } from '../time'
@@ -29,6 +30,7 @@ export default function ReportView({ initialRunId }: Props) {
   const [selected, setSelected] = useState<ReportRow | null>(null)
   const [pdf, setPdf] = useState<PdfState | null>(null)
   const [showNewRun, setShowNewRun] = useState(false)
+  const [showAddPapers, setShowAddPapers] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [embed, setEmbed] = useState<{ query: string; scores: Map<string, number> } | null>(null)
   const [reranking, setReranking] = useState(false)
@@ -61,12 +63,13 @@ export default function ReportView({ initialRunId }: Props) {
     function onKey(e: KeyboardEvent) {
       if (e.key !== 'Escape') return
       if (pdf) setPdf(null)
+      else if (showAddPapers) setShowAddPapers(false)
       else if (showNewRun) setShowNewRun(false)
       else if (selected) setSelected(null)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [pdf, showNewRun, selected])
+  }, [pdf, showNewRun, showAddPapers, selected])
 
   const doRerank = useCallback(
     async (query: string) => {
@@ -105,6 +108,9 @@ export default function ReportView({ initialRunId }: Props) {
             <a href={api.exportUrl(runId, 'xlsx')}>xlsx</a>
             <a href={api.exportUrl(runId, 'csv')}>csv</a>
           </span>
+        )}
+        {runId != null && (
+          <button className="subtoolbar-cta" onClick={() => setShowAddPapers(true)}>{t.report.addPapers}</button>
         )}
         <button className="primary subtoolbar-cta" onClick={() => setShowNewRun(true)}>{t.report.newRun}</button>
       </div>
@@ -178,6 +184,19 @@ export default function ReportView({ initialRunId }: Props) {
           onDone={(id) => {
             setShowNewRun(false)
             loadRuns(id)
+          }}
+        />
+      )}
+
+      {showAddPapers && runId != null && (
+        <AddPapersForm
+          runId={runId}
+          onClose={() => setShowAddPapers(false)}
+          onDone={() => {
+            // Reload the run detail + run list so the new papers and updated
+            // totals appear; keep the modal open so its log stays visible.
+            api.run(runId).then(setDetail, (e) => setError(String(e)))
+            loadRuns(runId)
           }}
         />
       )}

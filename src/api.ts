@@ -302,6 +302,7 @@ export const api = {
   estimate: (req: RunRequest) => post<Estimate>('/runs/estimate', req, { claudeKey: true }),
   rerank: (runId: number, query: string) => post<RerankResult>(`/runs/${runId}/rerank`, { query }),
   startRun: (req: RunRequest) => post<{ run_id: number; status: string; n_papers: number; mode: string }>('/runs', req, { claudeKey: true }),
+  addPapers: (runId: number) => post<{ run_id: number; status: string; n_candidates: number }>(`/runs/${runId}/add-papers`, {}, { claudeKey: true }),
   pdfUrl: (key: string) => `${API_BASE}/api/papers/${encodeURIComponent(key)}/pdf`,
   exportUrl: (runId: number, fmt: 'xlsx' | 'csv', keys?: string[]) => {
     const q = keys && keys.length ? `?keys=${encodeURIComponent(keys.join(','))}` : ''
@@ -333,7 +334,10 @@ export const api = {
   grobidStatus: () => get<{ alive: boolean; url: string }>('/grobid/status'),
   citationGraph: () => get<CitationGraph>('/citations/graph'),
   externalRefs: (key: string) => get<ExternalRef[]>(`/papers/${encodeURIComponent(key)}/external-refs`),
-  buildCitations: () => post<{ status: string }>('/citations/build', {}),
+  buildCitations: (keys?: string[]) => {
+    const q = keys && keys.length ? `?keys=${encodeURIComponent(keys.join(','))}` : ''
+    return post<{ status: string }>(`/citations/build${q}`, {})
+  },
   citationEventsUrl: () => `${API_BASE}/api/citations/events`,
 
   // concept graph (Phase 3)

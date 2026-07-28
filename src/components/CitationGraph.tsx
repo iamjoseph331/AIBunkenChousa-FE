@@ -55,7 +55,7 @@ export default function CitationGraph() {
     api.externalRefs(selected).then(setExternals, () => setExternals([]))
   }, [selected])
 
-  function build() {
+  function build(keys?: string[]) {
     setBuilding(true)
     setBuildError(null)
     setLog([])
@@ -89,7 +89,7 @@ export default function CitationGraph() {
     })
     es.onerror = () => { es.close(); setBuilding(false); setProgress(null) }
 
-    api.buildCitations().catch((e) => {
+    api.buildCitations(keys).catch((e) => {
       es.close()
       setBuilding(false)
       setBuildError({ msg: String(e instanceof Error ? e.message : e) })
@@ -128,6 +128,12 @@ export default function CitationGraph() {
   const citedBy = sel ? edges.filter((e) => e.target === sel.key) : []
   const hasGraph = graph && graph.nodes.length > 0
   const built = (graph?.n_processed ?? 0) > 0
+  // Papers not yet run through GROBID (no meta row → null status) — the incremental
+  // targets. Only their references get resolved; existing matches stay put.
+  const newKeys = useMemo(
+    () => (graph?.nodes ?? []).filter((n) => !n.status).map((n) => n.key),
+    [graph],
+  )
 
   // isolated = no incoming and no outgoing intra-corpus citation
   const isolatedCount = useMemo(
@@ -159,9 +165,14 @@ export default function CitationGraph() {
     <div className="cite">
       <div className="cite-toolbar">
         <div className="cite-toolbar-left">
-          <button className="primary" onClick={build} disabled={building}>
+          <button className="primary" onClick={() => build()} disabled={building}>
             {building ? t.cite.building : built ? t.cite.rebuild : t.cite.build}
           </button>
+          {built && newKeys.length > 0 && (
+            <button onClick={() => build(newKeys)} disabled={building}>
+              {t.cite.update} ({newKeys.length})
+            </button>
+          )}
           <span className={`grobid-chip ${grobid?.alive ? 'up' : 'down'}`} title={grobid?.url}>
             <span className="grobid-dot" /> {grobid?.alive ? t.cite.grobidUp : t.cite.grobidDown}
           </span>
