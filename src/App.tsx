@@ -3,13 +3,15 @@ import HomePage from './components/HomePage'
 import ReportView from './components/ReportView'
 import CitationGraph from './components/CitationGraph'
 import ConceptGraph from './components/ConceptGraph'
+import GeoView from './components/GeoView'
+import StatsView from './components/StatsView'
 import { useLang, useT } from './i18n'
 import { hasClaudeApiKey, setClaudeApiKey } from './api'
 import './App.css'
 
-type Tab = 'home' | 'report' | 'citations' | 'concepts'
+type Tab = 'home' | 'report' | 'citations' | 'concepts' | 'geo' | 'stats'
 
-const TAB_IDS: Tab[] = ['home', 'report', 'citations', 'concepts']
+const TAB_IDS: Tab[] = ['home', 'report', 'geo', 'stats', 'citations', 'concepts']
 
 function isTyping(el: EventTarget | null): boolean {
   const n = el as HTMLElement | null
@@ -154,6 +156,8 @@ export default function App() {
         />
       )}
       {tab === 'report' && <ReportView initialRunId={reportRunId} />}
+      {tab === 'geo' && <GeoView initialRunId={reportRunId} />}
+      {tab === 'stats' && <StatsView initialRunId={reportRunId} />}
       {tab === 'citations' && <CitationGraph />}
       {tab === 'concepts' && <ConceptGraph />}
     </div>
