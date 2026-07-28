@@ -5,6 +5,7 @@ import DetailDrawer from './DetailDrawer'
 import NewRunForm from './NewRunForm'
 import AddPapersForm from './AddPapersForm'
 import PdfViewer from './PdfViewer'
+import CategoryPanel from './CategoryPanel'
 import { useT } from '../i18n'
 import { formatDuration } from '../time'
 
@@ -127,6 +128,13 @@ export default function ReportView({ initialRunId }: Props) {
           <span>{t.report.time}: {formatDuration(currentRun.elapsed_seconds)}</span>
           {currentRun.status !== 'done' && <span className={`run-status ${currentRun.status}`}>{currentRun.status}</span>}
         </div>
+      )}
+
+      {runId != null && (
+        <CategoryPanel
+          runId={runId}
+          onChanged={() => api.run(runId).then(setDetail, (e) => setError(String(e)))}
+        />
       )}
 
       <main className={selected ? 'main with-drawer' : 'main'}>
