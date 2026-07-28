@@ -52,6 +52,14 @@
   --ver-short-bg:#eceff3;--ver-short-ink:#5a6474;--ver-short-solid:#9aa4b2;
 
   --trust-high:#12a184;--trust-mid:#d99a17;--trust-low:#d84437;--trust-track:#e2e6ec;
+
+  /* v0.2 Step 4: 10-slot qualitative palette for user-defined categories.
+     Shared across all themes (like the stance scale) — categoryClass(n) picks
+     one slot. Chosen for legibility in light mode; dark palette below is a
+     lightness-shifted variant of the same hues. */
+  --cat-1:#4f6ad6;--cat-2:#0c9c78;--cat-3:#c66a1a;--cat-4:#b25aa8;
+  --cat-5:#c02e24;--cat-6:#7d6ac2;--cat-7:#0f7791;--cat-8:#8f8b1c;
+  --cat-9:#c33e75;--cat-10:#5e6773;
 }
 
 [data-mode="dark"]{
@@ -77,6 +85,11 @@
   --ver-short-bg:#22262e;--ver-short-ink:#9aa4b2;--ver-short-solid:#68727f;
 
   --trust-high:#1fc39a;--trust-mid:#e0b03a;--trust-low:#ec6a5e;--trust-track:#2a333f;
+
+  /* Dark palette: same hues, higher lightness so chips read against dark surface. */
+  --cat-1:#8a9dff;--cat-2:#4fd8ba;--cat-3:#f0a869;--cat-4:#d99cd0;
+  --cat-5:#f0857b;--cat-6:#a9b0ff;--cat-7:#63c4de;--cat-8:#d6d067;
+  --cat-9:#eb85b0;--cat-10:#a3adbe;
 }
 
 /* ============================================================================

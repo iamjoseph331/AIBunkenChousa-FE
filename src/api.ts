@@ -14,7 +14,17 @@ export type EvidenceStatus =
   | 'unverified'
   | 'too_short'
 
-/** One row of a run's report table (db.run_report — analyses joined to papers). */
+/** One category assignment on a paper (from db.paper_categories joined into run_report). */
+export interface PaperCategoryAssignment {
+  category_id: string
+  name: string
+  confidence: number
+  is_primary: boolean
+  producer: 'analysis' | 'cheap' | 'deep' | 'human'
+}
+
+/** One row of a run's report table (db.run_report — analyses joined to papers,
+ * paper_enrich (v0.2), and per-paper categories on the run's current set). */
 export interface ReportRow {
   id: number
   paper_key: string
@@ -42,6 +52,24 @@ export interface ReportRow {
   n_pages: number | null
   quality: number | null
   year: number | null
+  // v0.2 OpenAlex enrichment (nullable — OpenAlex misses ~5% of the corpus)
+  openalex_id: string | null
+  pub_type: string | null
+  venue_name: string | null
+  publisher: string | null
+  cited_by_count: number | null
+  primary_domain: string | null
+  primary_field: string | null
+  primary_subfield: string | null
+  venue_2yr_mean_citedness: number | null
+  venue_h_index: number | null
+  author_countries: string[] | null
+  enrich_source: 'openalex' | 'crossref' | null
+  enrich_status: 'ok' | 'missing' | 'error' | null
+  // v0.2 target geography (from analyses.target_countries, filled by the Opus pass)
+  target_countries: string[] | null
+  // v0.2 categories on the run's current set
+  categories: PaperCategoryAssignment[]
 }
 
 export interface Evidence {
@@ -138,12 +166,20 @@ export interface Estimate {
   model: string
 }
 
+export interface CategoryDef {
+  name: string
+  definition?: string | null
+}
+
 export interface RunRequest {
   query?: string | null
   lang?: string
   model?: string
   mode?: 'sync' | 'batch'
   limit?: number | null
+  // v0.2: user-defined categories for classification. Server persists them
+  // to a new category_sets row for this run.
+  categories?: CategoryDef[]
 }
 
 export interface RerankScore {
@@ -164,7 +200,74 @@ export interface Settings {
   n_pdfs: number
 }
 
-// --- citation graph (Phase 2) -----------------------------------------------
+// --- OpenAlex enrichment (v0.2 Step 1) --------------------------------------
+export interface EnrichStatus {
+  n_papers: number
+  n_enriched: number
+  n_openalex: number
+  n_crossref: number
+  n_missing: number
+  n_error: number
+  n_untried: number
+}
+export interface EnrichRow {
+  paper_key: string
+  source: 'openalex' | 'crossref' | 'none'
+  openalex_id: string | null
+  doi: string | null
+  title: string | null
+  year: number | null
+  pub_type: string | null
+  venue_name: string | null
+  venue_issn: string | null
+  publisher: string | null
+  venue_2yr_mean_citedness: number | null
+  venue_h_index: number | null
+  cited_by_count: number | null
+  primary_domain: string | null
+  primary_field: string | null
+  primary_subfield: string | null
+  topics_json: string | null
+  authors_json: string | null
+  author_countries: string | null // JSON-serialised
+  referenced_works: string | null // JSON-serialised
+  status: 'ok' | 'missing' | 'error'
+  error: string | null
+  fetched_at: number
+}
+
+// --- categories (v0.2 Step 2) -----------------------------------------------
+export interface CategoryDefStored extends CategoryDef {
+  id: string
+  color_slot: number   // 1..10 → --cat-1..--cat-10
+  origin: 'user' | 'proposed'
+}
+export interface CategorySet {
+  id: number
+  run_id: number
+  version: string
+  is_current: number
+  created_at: number
+  categories: CategoryDefStored[]
+}
+export interface CategoryProposal {
+  id: number
+  set_id: number
+  name: string
+  definition: string | null
+  paper_key: string
+  rationale: string | null
+  status: 'pending' | 'accepted' | 'rejected' | 'merged'
+  merged_into: string | null
+  created_at: number
+}
+export interface CategoriesPayload {
+  set: CategorySet | null
+  counts: Record<string, { n_total: number; n_primary: number }>
+  proposals: CategoryProposal[]
+}
+
+// --- citation graph (Phase 2 + v0.2 Step 8a) --------------------------------
 export interface GraphNode {
   key: string
   title: string
@@ -176,11 +279,12 @@ export interface GraphNode {
   out_degree: number
   external_refs: number
   status: string | null
+  enrich_source?: 'openalex' | 'crossref' | null
 }
 export interface GraphEdge {
   source: string
   target: string
-  match_type: 'doi' | 'title'
+  match_type: 'openalex' | 'doi' | 'title'
   score: number
 }
 export interface CitationGraph {
@@ -188,6 +292,8 @@ export interface CitationGraph {
   edges: GraphEdge[]
   n_processed: number
   n_papers: number
+  n_openalex_edges?: number
+  n_grobid_edges?: number
   built: boolean
 }
 export interface ExternalRef {
@@ -347,4 +453,54 @@ export const api = {
   buildConcept: (runId: number, seed: ConceptSeed = 'citation') =>
     post<{ status: string }>(`/runs/${runId}/concept/build?seed=${seed}`, {}, { claudeKey: true }),
   conceptEventsUrl: (runId: number) => `${API_BASE}/api/runs/${runId}/concept/events`,
+
+  // enrichment (v0.2 Step 1) — free, no Claude key
+  enrichStatus: () => get<EnrichStatus>('/enrich/status'),
+  buildEnrich: (keys?: string[]) => {
+    const q = keys && keys.length ? `?keys=${encodeURIComponent(keys.join(','))}` : ''
+    return post<{ status: string }>(`/enrich/build${q}`, {})
+  },
+  enrichEventsUrl: () => `${API_BASE}/api/enrich/events`,
+  paperEnrich: (key: string) => get<EnrichRow>(`/papers/${encodeURIComponent(key)}/enrich`),
+
+  // categories (v0.2 Step 2)
+  categories: (runId: number) => get<CategoriesPayload>(`/runs/${runId}/categories`),
+  saveCategories: (runId: number, categories: CategoryDef[]) =>
+    put<{ set_id: number; version: string; categories: CategoryDefStored[] }>(
+      `/runs/${runId}/categories`, { categories },
+    ),
+  classifyCategories: (runId: number) =>
+    post<{ status: string; run_id: number }>(
+      `/runs/${runId}/categories/classify`, {}, { claudeKey: true },
+    ),
+  categoryEventsUrl: (runId: number) => `${API_BASE}/api/runs/${runId}/categories/events`,
+  actOnProposal: (runId: number, proposalId: number, action: 'accept' | 'reject' | 'merge', into?: string) =>
+    post<{ status: string; set_id?: number; version?: string; into?: string }>(
+      `/runs/${runId}/categories/proposals/${proposalId}`,
+      { action, into: into ?? null },
+    ),
+  reclassifyPaper: (paperKey: string, runId: number) =>
+    post<{ set_id: number; paper_key: string; n_assigned: number; n_proposed: number; total_usd: number }>(
+      `/papers/${encodeURIComponent(paperKey)}/categories/reclassify?run_id=${runId}`,
+      {}, { claudeKey: true },
+    ),
+  paperCategories: (runId: number, key: string) =>
+    get<PaperCategoryAssignment[]>(`/runs/${runId}/papers/${encodeURIComponent(key)}/categories`),
+}
+
+async function put<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${API_BASE}/api${path}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    let detail = `${res.status} ${res.statusText}`
+    try {
+      const j = await res.json()
+      if (j.detail) detail = typeof j.detail === 'string' ? j.detail : JSON.stringify(j.detail)
+    } catch { /* keep status text */ }
+    throw new Error(detail)
+  }
+  return res.json() as Promise<T>
 }

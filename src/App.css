@@ -1679,3 +1679,204 @@
 }
 .dash-dist-fill { display: block; height: 100%; border-radius: var(--r-pill); }
 .dash-dist-n { flex: 0 0 24px; text-align: right; font-size: var(--fs-sm); color: var(--ink); }
+
+/* ============================================================================
+   v0.2 — Category chips, importance sliders, geo/stats scaffolding.
+   Every color is a CSS variable so the 8-way theme × mode matrix works.
+============================================================================ */
+
+/* Category chips (row cells, drawer, legend) */
+.cat-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 1px 8px; border-radius: var(--r-pill);
+  font-size: var(--fs-xs); line-height: 1.5;
+  color: #fff;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.cat-chip.primary { font-weight: 600; }
+.cat-chip.secondary { opacity: 0.72; }
+.cat-chips {
+  display: flex; flex-wrap: wrap; gap: 3px;
+  max-width: 100%;
+}
+.cat-chip.c1{background:var(--cat-1);border-color:var(--cat-1)}
+.cat-chip.c2{background:var(--cat-2);border-color:var(--cat-2)}
+.cat-chip.c3{background:var(--cat-3);border-color:var(--cat-3)}
+.cat-chip.c4{background:var(--cat-4);border-color:var(--cat-4)}
+.cat-chip.c5{background:var(--cat-5);border-color:var(--cat-5)}
+.cat-chip.c6{background:var(--cat-6);border-color:var(--cat-6)}
+.cat-chip.c7{background:var(--cat-7);border-color:var(--cat-7)}
+.cat-chip.c8{background:var(--cat-8);border-color:var(--cat-8)}
+.cat-chip.c9{background:var(--cat-9);border-color:var(--cat-9)}
+.cat-chip.c10{background:var(--cat-10);border-color:var(--cat-10)}
+
+/* Categories panel (Report tab) */
+.cat-panel {
+  margin: 12px 18px; padding: 12px 14px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+.cat-panel-header {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; margin-bottom: 8px;
+}
+.cat-panel-header h3 { margin: 0; font-size: var(--fs-md); }
+.cat-panel-body { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 900px) { .cat-panel-body { grid-template-columns: 1fr; } }
+.cat-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.cat-list-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 8px; border-radius: var(--r-sm);
+  background: var(--surface-2);
+}
+.cat-list-item .cat-dot {
+  width: 12px; height: 12px; border-radius: 50%; display: inline-block; margin-right: 6px;
+}
+.cat-list-name { font-size: var(--fs-base); color: var(--ink); }
+.cat-list-count { color: var(--ink-2); font-size: var(--fs-sm); }
+.cat-proposals {
+  border-left: 3px solid var(--accent);
+  padding-left: 10px;
+}
+.cat-proposal {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 0; border-bottom: 1px dashed var(--border);
+}
+.cat-proposal:last-child { border-bottom: 0; }
+.cat-proposal-name { font-weight: 600; color: var(--ink); font-size: var(--fs-base); }
+.cat-proposal-why { color: var(--ink-2); font-size: var(--fs-sm); }
+.cat-proposal-actions { display: flex; gap: 4px; }
+.cat-badge {
+  display: inline-flex; align-items: center;
+  padding: 1px 6px; border-radius: var(--r-pill);
+  background: var(--accent-weak); color: var(--accent-ink);
+  font-size: var(--fs-xs);
+}
+
+/* Category editor rows (NewRunForm) */
+.cat-editor { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.cat-editor-row { display: flex; gap: 6px; align-items: center; }
+.cat-editor-row input { flex: 1; }
+
+/* Importance sliders (Report toolbar) */
+.imp-sliders {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 6px 10px; background: var(--surface-2); border-radius: var(--r-sm);
+}
+.imp-sliders label {
+  display: flex; align-items: center; gap: 4px;
+  font-size: var(--fs-sm); color: var(--ink-2);
+}
+.imp-sliders input[type=range] { width: 96px; }
+.imp-sliders .val { font-variant-numeric: tabular-nums; color: var(--ink); min-width: 24px; }
+.imp-reset {
+  font-size: var(--fs-xs); color: var(--accent-ink);
+  background: transparent; border: 0; cursor: pointer;
+}
+
+/* Cell for the importance column: number + a fine bar */
+.cell-importance { display: flex; align-items: center; gap: 6px; }
+.cell-importance .imp-num { font-variant-numeric: tabular-nums; font-weight: 600; }
+.cell-importance .imp-track {
+  flex: 1; height: 4px; background: var(--surface-3); border-radius: 999px; overflow: hidden;
+}
+.cell-importance .imp-fill { height: 100%; background: var(--accent); }
+.cell-importance.no-cite .imp-num { color: var(--ink-3); }
+.cell-importance.no-cite .imp-num::after {
+  content: '★'; margin-left: 4px; color: var(--ink-3); font-size: 10px;
+  vertical-align: super;
+}
+
+/* --- Geo tab ------------------------------------------------------------- */
+.geo-wrap { display: grid; grid-template-columns: minmax(0,1fr) 320px; gap: 14px;
+  margin: 12px 18px; }
+@media (max-width: 900px) { .geo-wrap { grid-template-columns: 1fr; } }
+.geo-toolbar {
+  display: flex; align-items: center; gap: 12px; padding: 8px 12px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-md) var(--r-md) 0 0; border-bottom: 0;
+}
+.geo-toolbar .seg {
+  display: inline-flex; border: 1px solid var(--border); border-radius: var(--r-pill);
+  overflow: hidden;
+}
+.geo-toolbar .seg button {
+  background: transparent; border: 0; padding: 4px 10px; color: var(--ink-2);
+  font-size: var(--fs-sm); cursor: pointer;
+}
+.geo-toolbar .seg button.on { background: var(--accent-weak); color: var(--accent-ink); }
+.geo-svg-wrap {
+  background: var(--surface); border: 1px solid var(--border); border-top: 0;
+  border-radius: 0 0 var(--r-md) var(--r-md); overflow: hidden;
+}
+.geo-svg { display: block; width: 100%; height: auto; }
+.geo-country {
+  fill: var(--surface-3); stroke: var(--border-strong); stroke-width: 0.4;
+  transition: fill var(--dur-fast) var(--ease);
+}
+.geo-country.on { fill: var(--accent); }
+.geo-country.dim { opacity: 0.4; }
+.geo-count {
+  font-size: 10px; fill: var(--ink); font-weight: 600;
+  pointer-events: none;
+  paint-order: stroke; stroke: var(--surface); stroke-width: 2.5px; stroke-linejoin: round;
+}
+.geo-side {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-md); padding: 12px;
+  max-height: 620px; overflow-y: auto;
+}
+.geo-side h4 { margin: 0 0 6px; font-size: var(--fs-md); }
+.geo-side .caveat { color: var(--ink-3); font-size: var(--fs-xs); margin-bottom: 10px; }
+.geo-region {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding: 4px 0; border-bottom: 1px dashed var(--border);
+}
+.geo-region:last-child { border-bottom: 0; }
+.geo-region .sub { color: var(--ink-2); font-size: var(--fs-xs); }
+.geo-region .n { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--ink); }
+.geo-region.subregion { padding-left: 10px; }
+.geo-region.continent { font-weight: 600; }
+.geo-empty { padding: 40px; text-align: center; color: var(--ink-3); }
+
+/* --- Stats tab ---------------------------------------------------------- */
+.stats-wrap { display: flex; flex-direction: column; gap: 16px; margin: 12px 18px; }
+.stats-summary {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px; padding: 12px 14px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md);
+}
+.stats-tile { display: flex; flex-direction: column; gap: 2px; }
+.stats-tile .k { color: var(--ink-3); font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.5px; }
+.stats-tile .v { color: var(--ink); font-size: var(--fs-2xl); font-weight: 600; font-variant-numeric: tabular-nums; }
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
+.stats-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-md); padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.stats-card-header {
+  display: flex; align-items: center; justify-content: space-between;
+}
+.stats-card h4 { margin: 0; font-size: var(--fs-md); color: var(--ink); }
+.stats-export {
+  display: inline-flex; gap: 4px;
+  font-size: var(--fs-xs); color: var(--ink-2);
+}
+.stats-export button {
+  background: transparent; border: 0; padding: 2px 6px; color: var(--accent-ink);
+  cursor: pointer; border-radius: var(--r-sm);
+}
+.stats-export button:hover { background: var(--accent-weak); }
+.stats-svg { display: block; width: 100%; height: auto; }
+.stats-empty { color: var(--ink-3); text-align: center; padding: 20px; }
+.stats-bar { fill: var(--accent); }
+.stats-axis { stroke: var(--border-strong); }
+.stats-axis-text { fill: var(--ink-2); font-size: 10px; font-family: var(--font-ui); }
+.stats-label { fill: var(--ink); font-size: 11px; font-family: var(--font-ui); }
+.stats-legend { display: flex; flex-wrap: wrap; gap: 6px; font-size: var(--fs-xs); color: var(--ink-2); }
+.stats-legend .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; margin-right: 3px; vertical-align: middle; }
+
+/* Pie-slice nodes on graphs — used when categories exist */
+.pie-slice { stroke: var(--surface); stroke-width: 0.6; }

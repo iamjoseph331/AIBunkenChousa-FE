@@ -9,13 +9,37 @@ export function computeLayout(
   edges: { source: string; target: string }[],
   vw: number,
   vh: number,
+  // v0.2 Step 4 fragment: optional per-node group tag. Nodes sharing a group
+  // get an additional pull toward the group's centroid, so category coloring
+  // reads as visible clustering in the graph. Missing / null → no group pull.
+  groups?: Record<string, string | null | undefined>,
 ): Record<string, Pos> {
   const N = nodes.length
   if (N === 0) return {}
   const idx = new Map(nodes.map((n, i) => [n.key, i]))
-  const pos: Pos[] = nodes.map((_, i) => {
-    const a = (i / N) * Math.PI * 2
-    return { x: vw / 2 + Math.cos(a) * vw * 0.28, y: vh / 2 + Math.sin(a) * vh * 0.28 }
+  // Seed positions: cluster nodes of the same group on the same arc segment so
+  // the layout converges into a group-visible arrangement even before the
+  // centroid pull kicks in.
+  const groupIds = groups
+    ? Array.from(new Set(nodes.map(n => groups[n.key]).filter(g => g != null))) as string[]
+    : []
+  const groupSlot = new Map<string, number>(groupIds.map((g, i) => [g, i]))
+  const pos: Pos[] = nodes.map((n, i) => {
+    const g = groups?.[n.key]
+    let baseAngle: number
+    if (g != null && groupSlot.has(g)) {
+      const slot = groupSlot.get(g)!
+      const sectorSize = (Math.PI * 2) / Math.max(1, groupIds.length)
+      // spread nodes within a group over a small local arc
+      const inGroup = nodes.filter(m => groups?.[m.key] === g).indexOf(n)
+      const groupSize = nodes.filter(m => groups?.[m.key] === g).length
+      const localOffset = groupSize > 1 ? (inGroup / groupSize) * sectorSize * 0.7 : 0
+      baseAngle = slot * sectorSize + localOffset
+    } else {
+      baseAngle = (i / N) * Math.PI * 2
+    }
+    return { x: vw / 2 + Math.cos(baseAngle) * vw * 0.28,
+             y: vh / 2 + Math.sin(baseAngle) * vh * 0.28 }
   })
   const links = edges
     .map((e) => [idx.get(e.source), idx.get(e.target)] as [number | undefined, number | undefined])
@@ -45,10 +69,32 @@ export function computeLayout(
       disp[a].x -= dx * att; disp[a].y -= dy * att
       disp[b].x += dx * att; disp[b].y += dy * att
     }
+    // Group centroid pull. Recomputed each iteration since positions move.
+    let centroids: Record<string, { x: number; y: number; n: number }> | undefined
+    if (groups && groupIds.length > 1) {
+      centroids = {}
+      for (let i = 0; i < N; i++) {
+        const g = groups[nodes[i].key]
+        if (!g) continue
+        const c = centroids[g] ??= { x: 0, y: 0, n: 0 }
+        c.x += pos[i].x; c.y += pos[i].y; c.n += 1
+      }
+      for (const g of groupIds) {
+        const c = centroids[g]
+        if (c && c.n > 0) { c.x /= c.n; c.y /= c.n }
+      }
+    }
     const temp = k * (1 - it / iterations)
     for (let i = 0; i < N; i++) {
       disp[i].x += (vw / 2 - pos[i].x) * 0.012
       disp[i].y += (vh / 2 - pos[i].y) * 0.012
+      if (centroids) {
+        const g = groups![nodes[i].key]
+        if (g && centroids[g]) {
+          disp[i].x += (centroids[g].x - pos[i].x) * 0.035
+          disp[i].y += (centroids[g].y - pos[i].y) * 0.035
+        }
+      }
       const dl = Math.hypot(disp[i].x, disp[i].y) || 0.01
       const lim = Math.min(dl, temp)
       pos[i].x += (disp[i].x / dl) * lim
