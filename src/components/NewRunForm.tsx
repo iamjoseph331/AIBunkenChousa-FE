@@ -10,16 +10,14 @@ interface Props {
   onDone: (runId: number) => void
   onClose: () => void
   initialQuery?: string
+  initialCategories?: CategoryDef[]
 }
 
-export default function NewRunForm({ onDone, onClose, initialQuery }: Props) {
+export default function NewRunForm({ onDone, onClose, initialQuery, initialCategories = [] }: Props) {
   const t = useT()
   const [req, setReq] = useState<RunRequest>({
     query: initialQuery ?? '', lang: 'auto', model: MODELS[0], mode: 'sync', categories: [],
   })
-  // Local draft of categories — kept out of `req.categories` until the user has
-  // typed something so the empty-list placeholder is real, not just for show.
-  const [cats, setCats] = useState<CategoryDef[]>([])
   const [estimate, setEstimate] = useState<Estimate | null>(null)
   const [busy, setBusy] = useState<'idle' | 'estimating' | 'running'>('idle')
   const [error, setError] = useState<string | null>(null)
@@ -51,7 +49,7 @@ export default function NewRunForm({ onDone, onClose, initialQuery }: Props) {
   const payload = (): RunRequest => ({
     ...req,
     query: req.query?.trim() || null,
-    categories: cats.filter((c) => (c.name || '').trim()),
+    categories: initialCategories.filter((c) => (c.name || '').trim()),
   })
 
   async function doEstimate() {
@@ -172,44 +170,6 @@ export default function NewRunForm({ onDone, onClose, initialQuery }: Props) {
               disabled={busy === 'running'}
             />
           </label>
-        </div>
-
-        <div className="field">
-          <span>{t.categories.title} <em>{t.newRun.queryOptional}</em></span>
-          <div className="cat-editor">
-            {cats.map((c, i) => (
-              <div className="cat-editor-row" key={i}>
-                <input
-                  value={c.name}
-                  onChange={(e) => setCats((cs) => cs.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))}
-                  placeholder={t.categories.namePlaceholder}
-                  disabled={busy === 'running'}
-                />
-                <input
-                  value={c.definition ?? ''}
-                  onChange={(e) => setCats((cs) => cs.map((x, j) => (j === i ? { ...x, definition: e.target.value } : x)))}
-                  placeholder={t.categories.defPlaceholder}
-                  disabled={busy === 'running'}
-                />
-                <button
-                  type="button"
-                  className="link"
-                  onClick={() => setCats((cs) => cs.filter((_, j) => j !== i))}
-                  disabled={busy === 'running'}
-                >
-                  {t.categories.remove}
-                </button>
-              </div>
-            ))}
-            <button
-              type="button"
-              onClick={() => setCats((cs) => [...cs, { name: '', definition: '' }])}
-              disabled={busy === 'running'}
-              style={{ alignSelf: 'flex-start' }}
-            >
-              {t.categories.addRow}
-            </button>
-          </div>
         </div>
 
         {estimate && (

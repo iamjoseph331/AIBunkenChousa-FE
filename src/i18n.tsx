@@ -46,6 +46,14 @@ const en = {
     claudeApiKeySavedToast: 'Claude API key saved.',
     claudeApiKeyClearedToast: 'Claude API key cleared.',
   },
+  settings: {
+    title: 'Settings', close: 'Close settings', language: 'Language', api: 'API keys',
+    appearance: 'Appearance', ranking: 'Report ranking', corpus: 'Corpus folder',
+    colorTheme: 'Color theme', displayMode: 'Display mode', density: 'Density',
+    folderHelp: 'The folder AIBunkenChousa reads PDFs from. It remains on this machine.',
+    saveFolder: 'Save folder', saving: 'Saving…', pdfsFound: 'PDFs found',
+    missing: 'This folder does not exist',
+  },
   stance: {
     supportive: 'supportive',
     critical: 'critical',
@@ -328,7 +336,7 @@ const en = {
   categories: {
     title: 'Categories',
     empty: 'No categories set for this run yet.',
-    editHint: 'Define sub-categories to slice the corpus. Editing the list re-runs the cheap classifier only (~$0.30/226 papers on Haiku); Opus analyses are never invalidated.',
+    editHint: 'Define sub-categories to slice the corpus before starting the investigation.',
     addRow: '+ add category',
     remove: 'remove',
     namePlaceholder: 'Category name',
@@ -415,6 +423,14 @@ const ja: Dict = {
     saveClaudeApiKey: 'キーを保存',
     claudeApiKeySavedToast: 'Claude APIキーを保存しました。',
     claudeApiKeyClearedToast: 'Claude APIキーを削除しました。',
+  },
+  settings: {
+    title: '設定', close: '設定を閉じる', language: '言語', api: 'APIキー',
+    appearance: '表示', ranking: 'レポート順位', corpus: 'コーパスフォルダ',
+    colorTheme: 'カラーテーマ', displayMode: '表示モード', density: '密度',
+    folderHelp: 'AIBunkenChousaがPDFを読むフォルダです。ファイルはこのマシンに残ります。',
+    saveFolder: 'フォルダを保存', saving: '保存中…', pdfsFound: 'PDFを検出',
+    missing: 'このフォルダは存在しません',
   },
   stance: {
     supportive: '支持',
@@ -693,7 +709,7 @@ const ja: Dict = {
   categories: {
     title: 'カテゴリ',
     empty: 'このランにはカテゴリがまだ設定されていません。',
-    editHint: 'サブカテゴリで論文を分類できます。リストを編集しても再実行されるのはHaikuの安価な分類器のみ（226論文で約$0.30）。Opusの分析結果は無効化されません。',
+    editHint: '調査を始める前に、コーパスを分類するサブカテゴリを定義します。',
     addRow: '+ カテゴリを追加',
     remove: '削除',
     namePlaceholder: 'カテゴリ名',

@@ -5,9 +5,9 @@ import DetailDrawer from './DetailDrawer'
 import NewRunForm from './NewRunForm'
 import AddPapersForm from './AddPapersForm'
 import PdfViewer from './PdfViewer'
-import CategoryPanel from './CategoryPanel'
 import { useT } from '../i18n'
 import { formatDuration } from '../time'
+import type { ImportanceWeights } from '../importance'
 
 interface PdfState {
   key: string
@@ -21,9 +21,12 @@ interface PdfState {
 interface Props {
   /** A run to preselect (e.g. one just started from the Home query bar). */
   initialRunId?: number | null
+  weights: ImportanceWeights
+  countryFilter?: { codes: string[]; label: string; mode: 'author' | 'target' } | null
+  onClearCountryFilter: () => void
 }
 
-export default function ReportView({ initialRunId }: Props) {
+export default function ReportView({ initialRunId, weights, countryFilter, onClearCountryFilter }: Props) {
   const t = useT()
   const [runs, setRuns] = useState<Run[]>([])
   const [runId, setRunId] = useState<number | null>(initialRunId ?? null)
@@ -96,7 +99,7 @@ export default function ReportView({ initialRunId }: Props) {
       <div className="subtoolbar">
         <label className="run-picker">
           {t.report.runLabel}
-          <select value={runId ?? ''} onChange={(e) => setRunId(Number(e.target.value))}>
+          <select value={runId ?? ''} onChange={(e) => { onClearCountryFilter(); setRunId(Number(e.target.value)) }}>
             {runs.map((r) => (
               <option key={r.id} value={r.id}>
                 #{r.id} · {r.query ? r.query.slice(0, 40) : t.report.noQuery} · {r.n_papers ?? '?'}p · {r.status}
@@ -130,13 +133,6 @@ export default function ReportView({ initialRunId }: Props) {
         </div>
       )}
 
-      {runId != null && (
-        <CategoryPanel
-          runId={runId}
-          onChanged={() => api.run(runId).then(setDetail, (e) => setError(String(e)))}
-        />
-      )}
-
       <main className={selected ? 'main with-drawer' : 'main'}>
         <div className="table-pane">
           {detail ? (
@@ -153,6 +149,9 @@ export default function ReportView({ initialRunId }: Props) {
                 setEmbed(null)
                 setRerankError(null)
               }}
+              weights={weights}
+              countryFilter={countryFilter}
+              onClearCountryFilter={onClearCountryFilter}
             />
           ) : (
             <div className="loading">{runs.length ? t.report.loadingRun : t.report.noRuns}</div>

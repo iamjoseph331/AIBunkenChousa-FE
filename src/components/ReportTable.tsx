@@ -14,9 +14,6 @@ import { StanceBadge, TrustStrip } from './bits'
 import { useT } from '../i18n'
 import {
   scoreRows,
-  loadWeights,
-  saveWeights,
-  DEFAULT_WEIGHTS,
   type ImportanceWeights,
   type Scored,
 } from '../importance'
@@ -53,6 +50,9 @@ interface Props {
   rerankError?: string | null
   onRerank: (query: string) => void
   onClearRerank: () => void
+  weights: ImportanceWeights
+  countryFilter?: { codes: string[]; label: string; mode: 'author' | 'target' } | null
+  onClearCountryFilter: () => void
 }
 
 export default function ReportTable({
@@ -65,6 +65,9 @@ export default function ReportTable({
   rerankError,
   onRerank,
   onClearRerank,
+  weights,
+  countryFilter,
+  onClearCountryFilter,
 }: Props) {
   const t = useT()
   // v0.2: default sort is by importance (weighted blend), replacing relevance_score.
@@ -73,7 +76,6 @@ export default function ReportTable({
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
   const [rerankInput, setRerankInput] = useState('')
   const [activeIndex, setActiveIndex] = useState(-1)
-  const [weights, setWeights] = useState<ImportanceWeights>(() => loadWeights())
   const scrollRef = useRef<HTMLDivElement>(null)
   const rowEls = useRef<(HTMLTableRowElement | null)[]>([])
 
@@ -83,9 +85,7 @@ export default function ReportTable({
     else setSorting([{ id: 'importance', desc: true }])
   }, [embedScores])
 
-  useEffect(() => { saveWeights(weights) }, [weights])
   const importanceMap = useMemo(() => scoreRows(rows, weights), [rows, weights])
-  const setW = (patch: Partial<ImportanceWeights>) => setWeights((w) => ({ ...w, ...patch }))
 
   const columns = useMemo(
     () => [
@@ -269,7 +269,9 @@ export default function ReportTable({
   )
 
   const table = useReactTable({
-    data: rows,
+    data: countryFilter
+      ? rows.filter((row) => (countryFilter.mode === 'author' ? row.author_countries : row.target_countries)?.some((code) => countryFilter.codes.includes(code)))
+      : rows,
     columns,
     state: { sorting, globalFilter, columnFilters },
     onSortingChange: setSorting,
@@ -446,38 +448,7 @@ export default function ReportTable({
 
         <span className="report-count">{modelRows.length} / {rows.length}</span>
       </div>
-      <div className="imp-sliders">
-        <label>
-          {t.report.weightCitations}
-          <input
-            type="range" min="0" max="1" step="0.05"
-            value={weights.citations}
-            onChange={(e) => setW({ citations: Number(e.target.value) })}
-          />
-          <span className="val">{weights.citations.toFixed(2)}</span>
-        </label>
-        <label>
-          {t.report.weightRecency}
-          <input
-            type="range" min="0" max="1" step="0.05"
-            value={weights.recency}
-            onChange={(e) => setW({ recency: Number(e.target.value) })}
-          />
-          <span className="val">{weights.recency.toFixed(2)}</span>
-        </label>
-        <label>
-          {t.report.weightRelevance}
-          <input
-            type="range" min="0" max="1" step="0.05"
-            value={weights.relevance}
-            onChange={(e) => setW({ relevance: Number(e.target.value) })}
-          />
-          <span className="val">{weights.relevance.toFixed(2)}</span>
-        </label>
-        <button className="imp-reset" onClick={() => setWeights(DEFAULT_WEIGHTS)}>
-          {t.report.resetWeights}
-        </button>
-      </div>
+      {countryFilter && <div className="report-country-filter"><span>{countryFilter.mode === 'author' ? t.report.authorCountries : t.report.targetCountries}: <b>{countryFilter.label}</b></span><button className="link" onClick={onClearCountryFilter}>{t.report.clear}</button></div>}
       <div className="kbd-hint" aria-hidden="true">{t.report.hintKeys}</div>
       {embedQuery && (
         <div className="rerank-note">

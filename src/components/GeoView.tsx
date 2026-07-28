@@ -1,223 +1,85 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { geoNaturalEarth1, geoPath } from 'd3-geo'
+import { feature } from 'topojson-client'
+import { numericToAlpha2 } from 'i18n-iso-countries'
+import world from 'world-atlas/countries-110m.json'
 import { api, type Run, type ReportRow } from '../api'
 import { ISO_META, countryName, type CountryMeta } from '../geo/iso'
 import { useT } from '../i18n'
 
-// v0.2 Step 5: run-scoped geographic distribution. Two lenses on the corpus:
-// author countries (from OpenAlex enrichment) and study countries (from the
-// analysis pass's target_geo). Counting is once per distinct country per paper,
-// so totals exceed n_papers — labelled explicitly in the side panel.
-//
-// This is a dot-map, not a polygon choropleth. Ships zero geo dependencies;
-// polygon choropleth is tracked as a v0.3 upgrade.
-
 type Mode = 'author' | 'target'
 
-interface CountryEntry {
-  code: string
-  meta: CountryMeta | null
-  count: number
+interface CountryEntry { code: string; meta: CountryMeta | null; count: number }
+interface SubregionBucket { name: string; codes: string[]; total: number }
+interface RegionBucket { continent: string; codes: string[]; subregions: SubregionBucket[]; total: number }
+interface HoveredCountry { name: string; count: number | null }
+interface Props {
+  initialRunId?: number | null
+  onFilter: (filter: { runId: number; codes: string[]; label: string; mode: Mode }) => void
 }
 
-interface RegionBucket {
-  continent: string
-  subregions: Map<string, number>
-  total: number
-}
+const VW = 960
+const VH = 480
+const countryFeatures = (feature(world as never, world.objects.countries as never) as unknown as GeoJSON.FeatureCollection).features
+  .map((shape) => ({ shape, code: numericToAlpha2(String(shape.id).padStart(3, '0'))?.toUpperCase() }))
+  .filter(({ code }) => code !== 'AQ')
+const countryCollection: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: countryFeatures.map(({ shape }) => shape) }
+const projection = geoNaturalEarth1().fitExtent([[12, 12], [VW - 12, VH - 12]], countryCollection)
+const path = geoPath(projection)
 
 function countByMode(rows: ReportRow[], mode: Mode): Map<string, number> {
   const counts = new Map<string, number>()
-  for (const r of rows) {
-    const list = mode === 'author' ? r.author_countries : r.target_countries
-    if (!list) continue
-    // De-dup within a paper: count each country ONCE per paper.
-    const seen = new Set<string>()
-    for (const cc of list) {
-      const upper = (cc || '').toUpperCase()
-      if (!upper || seen.has(upper)) continue
-      seen.add(upper)
-      counts.set(upper, (counts.get(upper) ?? 0) + 1)
+  for (const row of rows) {
+    const countries = mode === 'author' ? row.author_countries : row.target_countries
+    for (const code of new Set((countries ?? []).map((country) => country.toUpperCase()))) {
+      if (code) counts.set(code, (counts.get(code) ?? 0) + 1)
     }
   }
   return counts
 }
 
 function rollUp(entries: CountryEntry[]): RegionBucket[] {
-  const map = new Map<string, RegionBucket>()
-  let other = 0
-  for (const e of entries) {
-    if (!e.meta) { other += e.count; continue }
-    const key = e.meta.continent
-    let b = map.get(key)
-    if (!b) {
-      b = { continent: e.meta.continent, subregions: new Map(), total: 0 }
-      map.set(key, b)
-    }
-    b.total += e.count
-    b.subregions.set(e.meta.subregion, (b.subregions.get(e.meta.subregion) ?? 0) + e.count)
+  const continents = new Map<string, { codes: string[]; total: number; subregions: Map<string, SubregionBucket> }>()
+  for (const entry of entries) {
+    if (!entry.meta) continue
+    const continent = continents.get(entry.meta.continent) ?? { codes: [] as string[], total: 0, subregions: new Map<string, SubregionBucket>() }
+    continent.codes.push(entry.code)
+    continent.total += entry.count
+    const subregion = continent.subregions.get(entry.meta.subregion) ?? { name: entry.meta.subregion, codes: [], total: 0 }
+    subregion.codes.push(entry.code)
+    subregion.total += entry.count
+    continent.subregions.set(entry.meta.subregion, subregion)
+    continents.set(entry.meta.continent, continent)
   }
-  const out = [...map.values()].sort((a, b) => b.total - a.total)
-  if (other > 0) {
-    out.push({
-      continent: 'Other',
-      subregions: new Map([['Unmapped codes', other]]),
-      total: other,
-    })
-  }
-  return out
+  return [...continents.entries()].map(([continent, value]) => ({ continent, codes: value.codes, total: value.total, subregions: [...value.subregions.values()].sort((a, b) => b.total - a.total) })).sort((a, b) => b.total - a.total)
 }
 
-// Equirectangular projection into an 800×400 viewBox.
-const VW = 960
-const VH = 480
-function project(lat: number, lon: number): [number, number] {
-  const x = ((lon + 180) / 360) * VW
-  const y = ((90 - lat) / 180) * VH
-  return [x, y]
-}
-
-interface Props {
-  /** Optional run-id. When null the tab shows the empty state. */
-  initialRunId?: number | null
-}
-
-export default function GeoView({ initialRunId }: Props) {
+export default function GeoView({ initialRunId, onFilter }: Props) {
   const t = useT()
   const [runs, setRuns] = useState<Run[]>([])
   const [runId, setRunId] = useState<number | null>(initialRunId ?? null)
   const [rows, setRows] = useState<ReportRow[]>([])
   const [mode, setMode] = useState<Mode>('author')
+  const [hovered, setHovered] = useState<HoveredCountry | null>(null)
 
   const loadRuns = useCallback(async () => {
-    const rs = await api.runs()
-    setRuns(rs)
-    setRunId((cur) => cur ?? rs[0]?.id ?? null)
+    const loaded = await api.runs()
+    setRuns(loaded)
+    setRunId((current) => current ?? loaded[0]?.id ?? null)
   }, [])
-
   useEffect(() => { loadRuns() }, [loadRuns])
+  useEffect(() => { if (runId != null) api.run(runId).then((data) => setRows(data.report), () => setRows([])) }, [runId])
 
-  useEffect(() => {
-    if (runId == null) return
-    api.run(runId).then((d) => setRows(d.report), () => setRows([]))
-  }, [runId])
-
-  const entries: CountryEntry[] = useMemo(() => {
-    const counts = countByMode(rows, mode)
-    return [...counts.entries()]
-      .map(([code, count]) => ({ code, meta: ISO_META[code] ?? null, count }))
-      .sort((a, b) => b.count - a.count)
-  }, [rows, mode])
-  const maxCount = Math.max(1, ...entries.map((e) => e.count))
-  const totalOccurrences = entries.reduce((s, e) => s + e.count, 0)
+  const entries = useMemo(() => [...countByMode(rows, mode).entries()].map(([code, count]) => ({ code, count, meta: ISO_META[code] ?? null })).sort((a, b) => b.count - a.count), [rows, mode])
+  const counts = useMemo(() => new Map(entries.map((entry) => [entry.code, entry.count])), [entries])
+  const maxCount = Math.max(1, ...entries.map((entry) => entry.count))
   const buckets = rollUp(entries)
+  const applyFilter = (codes: string[], label: string) => { if (runId != null) onFilter({ runId, codes, label, mode }) }
 
-  return (
-    <>
-      <div className="subtoolbar">
-        <label className="run-picker">
-          {t.report.runLabel}
-          <select value={runId ?? ''} onChange={(e) => setRunId(Number(e.target.value))}>
-            {runs.map((r) => (
-              <option key={r.id} value={r.id}>
-                #{r.id} · {r.query ? r.query.slice(0, 40) : t.report.noQuery} · {r.n_papers ?? '?'}p
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-
-      <div className="geo-wrap">
-        <div>
-          <div className="geo-toolbar">
-            <div className="seg" role="tablist">
-              <button className={mode === 'author' ? 'on' : ''} onClick={() => setMode('author')}>{t.geo.author}</button>
-              <button className={mode === 'target' ? 'on' : ''} onClick={() => setMode('target')}>{t.geo.target}</button>
-            </div>
-            <span className="ink-3" style={{ fontSize: 'var(--fs-xs)' }}>{t.geo.clickToFilter}</span>
-          </div>
-          <div className="geo-svg-wrap">
-            {entries.length === 0 ? (
-              <div className="geo-empty">{t.geo.empty}</div>
-            ) : (
-              <svg className="geo-svg" viewBox={`0 0 ${VW} ${VH}`} role="img">
-                {/* Ocean background */}
-                <rect x={0} y={0} width={VW} height={VH} fill="var(--surface-2)" />
-                {/* Simple latitude grid so the map reads as a map, not a scatter */}
-                {[60, 30, 0, -30, -60].map((lat) => {
-                  const [, y] = project(lat, 0)
-                  return (
-                    <line key={lat} x1={0} y1={y} x2={VW} y2={y}
-                      stroke="var(--border)" strokeWidth={0.5} strokeDasharray="2 4" />
-                  )
-                })}
-                {[-120, -60, 0, 60, 120].map((lon) => {
-                  const [x] = project(0, lon)
-                  return (
-                    <line key={lon} x1={x} y1={0} x2={x} y2={VH}
-                      stroke="var(--border)" strokeWidth={0.5} strokeDasharray="2 4" />
-                  )
-                })}
-                {entries.filter((e) => e.meta).map((e) => {
-                  const meta = e.meta!
-                  const [cx, cy] = project(meta.lat, meta.lon)
-                  const scale = e.count / maxCount
-                  const r = 5 + Math.sqrt(scale) * 22
-                  return (
-                    <g key={e.code}>
-                      <circle
-                        cx={cx} cy={cy} r={r}
-                        fill="var(--accent)"
-                        fillOpacity={0.28 + scale * 0.55}
-                        stroke="var(--accent)"
-                        strokeWidth={1}
-                      >
-                        <title>{meta.name} — {e.count} papers</title>
-                      </circle>
-                      <text x={cx} y={cy + 3} textAnchor="middle" className="geo-count">
-                        {e.count}
-                      </text>
-                    </g>
-                  )
-                })}
-              </svg>
-            )}
-          </div>
-        </div>
-
-        <aside className="geo-side">
-          <h4>{t.geo.regionsTitle}</h4>
-          <div className="caveat">
-            {mode === 'author' ? t.geo.tabCaveatAuthor : t.geo.tabCaveatTarget}
-            {' '}
-            <b>{totalOccurrences}</b> country-mentions across <b>{rows.length}</b> papers.
-          </div>
-          {buckets.map((b) => (
-            <div key={b.continent} style={{ marginBottom: 8 }}>
-              <div className="geo-region continent">
-                <span>{b.continent}</span>
-                <span className="n">{b.total}</span>
-              </div>
-              {[...b.subregions.entries()].sort((a, b) => b[1] - a[1]).map(([name, n]) => (
-                <div key={name} className="geo-region subregion">
-                  <span className="sub">{name}</span>
-                  <span className="n">{n}</span>
-                </div>
-              ))}
-            </div>
-          ))}
-          {entries.length > 0 && (
-            <>
-              <h4 style={{ marginTop: 12 }}>Top countries</h4>
-              {entries.slice(0, 20).map((e) => (
-                <div key={e.code} className="geo-region">
-                  <span className="sub">{countryName(e.code)}</span>
-                  <span className="n">{e.count}</span>
-                </div>
-              ))}
-            </>
-          )}
-        </aside>
-      </div>
-    </>
-  )
+  return <>
+    <div className="subtoolbar"><label className="run-picker">{t.report.runLabel}<select value={runId ?? ''} onChange={(event) => setRunId(Number(event.target.value))}>{runs.map((run) => <option key={run.id} value={run.id}>#{run.id} · {run.query ? run.query.slice(0, 40) : t.report.noQuery} · {run.n_papers ?? '?'}p</option>)}</select></label></div>
+    <div className="geo-wrap"><div><div className="geo-toolbar"><div className="seg" role="tablist"><button className={mode === 'author' ? 'on' : ''} onClick={() => setMode('author')}>{t.geo.author}</button><button className={mode === 'target' ? 'on' : ''} onClick={() => setMode('target')}>{t.geo.target}</button></div><span className="ink-3" style={{ fontSize: 'var(--fs-xs)' }}>{t.geo.clickToFilter}</span></div><div className="geo-svg-wrap"><svg className="geo-svg" viewBox={`0 0 ${VW} ${VH}`} role="img" aria-label={t.geo.title}><rect x="0" y="0" width={VW} height={VH} fill="var(--surface-2)" />{countryFeatures.map(({ shape, code }) => { const count = code ? counts.get(code) ?? null : null; const active = code && count != null; const name = code ? countryName(code) : String(shape.id); return <path key={String(shape.id)} d={path(shape) ?? ''} className={`geo-country${active ? ' on' : ''}`} role={active ? 'button' : undefined} tabIndex={active ? 0 : undefined} onPointerEnter={() => setHovered({ name, count })} onPointerLeave={() => setHovered(null)} onClick={() => { if (code && active) applyFilter([code], name) }} onKeyDown={(event) => { if (active && code && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); applyFilter([code], name) } }} /> })}{entries.filter((entry) => entry.meta).map((entry) => { const point = projection([entry.meta!.lon, entry.meta!.lat]); if (!point) return null; const scale = entry.count / maxCount; return <g key={entry.code} pointerEvents="none"><circle cx={point[0]} cy={point[1]} r={4 + Math.sqrt(scale) * 16} className="geo-marker" /><text x={point[0]} y={point[1] + 3} textAnchor="middle" className="geo-count">{entry.count}</text></g> })}</svg>{hovered && <div className="geo-tooltip"><b>{hovered.name}</b><span>{hovered.count == null ? 'No papers in this run' : `${hovered.count} ${hovered.count === 1 ? 'paper' : 'papers'} · click to filter Report`}</span></div>}{entries.length === 0 && <div className="geo-empty">{t.geo.empty}</div>}</div></div>
+      <aside className="geo-side"><h4>{t.geo.regionsTitle}</h4><div className="caveat">{mode === 'author' ? t.geo.tabCaveatAuthor : t.geo.tabCaveatTarget}</div>{buckets.map((bucket) => <div key={bucket.continent} style={{ marginBottom: 8 }}><button className="geo-region continent geo-region-button" onClick={() => applyFilter(bucket.codes, bucket.continent)}><span>{bucket.continent}</span><span className="n">{bucket.total}</span></button>{bucket.subregions.map((subregion) => <button key={subregion.name} className="geo-region subregion geo-region-button" onClick={() => applyFilter(subregion.codes, subregion.name)}><span className="sub">{subregion.name}</span><span className="n">{subregion.total}</span></button>)}</div>)}{entries.length > 0 && <><h4 style={{ marginTop: 12 }}>Top countries</h4>{entries.slice(0, 20).map((entry) => <button key={entry.code} className="geo-region geo-country-link" onClick={() => applyFilter([entry.code], countryName(entry.code))}><span className="sub">{countryName(entry.code)}</span><span className="n">{entry.count}</span></button>)}</>}</aside>
+    </div>
+  </>
 }

@@ -5,8 +5,10 @@ import CitationGraph from './components/CitationGraph'
 import ConceptGraph from './components/ConceptGraph'
 import GeoView from './components/GeoView'
 import StatsView from './components/StatsView'
+import SettingsModal from './components/SettingsModal'
 import { useLang, useT } from './i18n'
 import { hasClaudeApiKey, setClaudeApiKey } from './api'
+import { loadWeights, saveWeights, type ImportanceWeights } from './importance'
 import './App.css'
 
 type Tab = 'home' | 'report' | 'citations' | 'concepts' | 'geo' | 'stats'
@@ -31,11 +33,13 @@ export default function App() {
     () => (localStorage.getItem('aibc-density') as 'compact' | 'comfortable') || 'comfortable',
   )
   const [tab, setTab] = useState<Tab>(() => (localStorage.getItem('aibc-tab') as Tab) || 'home')
-  const [claudeKeyDraft, setClaudeKeyDraft] = useState('')
   const [claudeKeySaved, setClaudeKeySaved] = useState(() => hasClaudeApiKey())
+  const [showSettings, setShowSettings] = useState(false)
+  const [weights, setWeights] = useState<ImportanceWeights>(() => loadWeights())
   const [toast, setToast] = useState<string | null>(null)
   // A run to open in the Report tab — set when the Home query bar starts one.
   const [reportRunId, setReportRunId] = useState<number | null>(null)
+  const [reportCountryFilter, setReportCountryFilter] = useState<{ codes: string[]; label: string; mode: 'author' | 'target' } | null>(null)
 
   const { lang, setLang } = useLang()
   const t = useT()
@@ -44,16 +48,16 @@ export default function App() {
   useEffect(() => localStorage.setItem('aibc-theme', theme), [theme])
   useEffect(() => localStorage.setItem('aibc-density', density), [density])
   useEffect(() => localStorage.setItem('aibc-tab', tab), [tab])
+  useEffect(() => saveWeights(weights), [weights])
   useEffect(() => {
     if (!toast) return
     const id = window.setTimeout(() => setToast(null), 2400)
     return () => window.clearTimeout(id)
   }, [toast])
 
-  function saveClaudeKey() {
-    const saved = setClaudeApiKey(claudeKeyDraft)
+  function saveClaudeKey(value: string) {
+    const saved = setClaudeApiKey(value)
     setClaudeKeySaved(saved)
-    setClaudeKeyDraft('')
     setToast(saved ? t.controls.claudeApiKeySavedToast : t.controls.claudeApiKeyClearedToast)
   }
 
@@ -96,54 +100,7 @@ export default function App() {
           ))}
         </nav>
 
-        <div className="topbar-controls">
-          <form
-            className="api-key-control"
-            onSubmit={(e) => {
-              e.preventDefault()
-              saveClaudeKey()
-            }}
-            aria-label={t.controls.claudeApiKey}
-          >
-            <label htmlFor="claude-api-key">{t.controls.claudeApiKey}</label>
-            <input
-              id="claude-api-key"
-              type="password"
-              value={claudeKeyDraft}
-              onChange={(e) => {
-                setClaudeKeyDraft(e.target.value)
-              }}
-              placeholder={claudeKeySaved ? t.controls.claudeApiKeySavedPlaceholder : t.controls.claudeApiKeyPlaceholder}
-              spellCheck={false}
-              autoComplete="off"
-            />
-            <button type="submit" title={t.controls.saveClaudeApiKey}>
-              {t.controls.saveClaudeApiKey}
-            </button>
-          </form>
-          <div className="lang-toggle" role="group" aria-label={t.controls.language}>
-            <button className={lang === 'en' ? 'on' : ''} onClick={() => setLang('en')}>EN</button>
-            <button className={lang === 'ja' ? 'on' : ''} onClick={() => setLang('ja')}>日本語</button>
-          </div>
-          <select value={theme} onChange={(e) => setTheme(e.target.value)} aria-label="Theme">
-            <option value="slate">Slate</option>
-            <option value="graphite">Graphite</option>
-            <option value="sepia">Sepia</option>
-            <option value="nord">Nord</option>
-          </select>
-          <button
-            onClick={() => setMode(mode === 'dark' ? 'light' : 'dark')}
-            aria-label={mode === 'dark' ? t.controls.darkMode : t.controls.lightMode}
-          >
-            {mode === 'dark' ? '☾' : '☀'}
-          </button>
-          <button
-            className="density-btn"
-            onClick={() => setDensity(density === 'compact' ? 'comfortable' : 'compact')}
-          >
-            {density === 'compact' ? t.controls.compact : t.controls.comfortable}
-          </button>
-        </div>
+        <div className="topbar-controls"><button className="settings-trigger" onClick={() => setShowSettings(true)} aria-label={t.settings.title}>⚙</button></div>
       </header>
       {toast && <div className="app-toast" role="status">{toast}</div>}
 
@@ -155,11 +112,12 @@ export default function App() {
           }}
         />
       )}
-      {tab === 'report' && <ReportView initialRunId={reportRunId} />}
-      {tab === 'geo' && <GeoView initialRunId={reportRunId} />}
+      {tab === 'report' && <ReportView initialRunId={reportRunId} weights={weights} countryFilter={reportCountryFilter} onClearCountryFilter={() => setReportCountryFilter(null)} />}
+      {tab === 'geo' && <GeoView initialRunId={reportRunId} onFilter={(filter) => { setReportRunId(filter.runId); setReportCountryFilter({ codes: filter.codes, label: filter.label, mode: filter.mode }); setTab('report') }} />}
       {tab === 'stats' && <StatsView initialRunId={reportRunId} />}
       {tab === 'citations' && <CitationGraph />}
       {tab === 'concepts' && <ConceptGraph />}
+      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} lang={lang} setLang={setLang} mode={mode} setMode={setMode} theme={theme} setTheme={setTheme} density={density} setDensity={setDensity} claudeKeySaved={claudeKeySaved} onSaveClaudeKey={saveClaudeKey} weights={weights} setWeights={setWeights} />}
     </div>
   )
 }

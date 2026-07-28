@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, type Settings } from '../api'
+import { useCallback, useRef, useState } from 'react'
+import { api, type CategoryDef } from '../api'
 import { ConfidenceDots, StanceBadge, TrustBar } from './bits'
 import NewRunForm from './NewRunForm'
 import HomeDashboard from './HomeDashboard'
@@ -66,42 +66,12 @@ export default function HomePage({ onOpenRun }: Props) {
   const { lang } = useLang()
   const t = useT()
   const [queryDraft, setQueryDraft] = useState('')
+  const [categories, setCategories] = useState<CategoryDef[]>([])
   const [showRun, setShowRun] = useState(false)
-  const [settings, setSettings] = useState<Settings | null>(null)
-  const [pathDraft, setPathDraft] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [folderError, setFolderError] = useState<string | null>(null)
   const [dragActive, setDragActive] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [uploads, setUploads] = useState<UploadStatus[]>([])
   const fileRef = useRef<HTMLInputElement | null>(null)
-
-  const loadSettings = useCallback(async () => {
-    try {
-      const s = await api.settings()
-      setSettings(s)
-      setPathDraft((cur) => cur || s.papers_dir)
-    } catch (e) {
-      setFolderError(String(e instanceof Error ? e.message : e))
-    }
-  }, [])
-
-  useEffect(() => {
-    loadSettings()
-  }, [loadSettings])
-
-  async function saveFolder() {
-    setSaving(true)
-    setFolderError(null)
-    try {
-      const s = await api.saveSettings(pathDraft.trim())
-      setSettings(s)
-    } catch (e) {
-      setFolderError(String(e instanceof Error ? e.message : e))
-    } finally {
-      setSaving(false)
-    }
-  }
 
   const uploadFiles = useCallback(async (files: File[]) => {
     const pdfs = files.filter((f) => f.name.toLowerCase().endsWith('.pdf'))
@@ -118,8 +88,7 @@ export default function HomePage({ onOpenRun }: Props) {
     }
     setUploads((prev) => [...results, ...prev])
     setUploading(false)
-    loadSettings()
-  }, [loadSettings])
+  }, [])
 
   function onDrop(e: React.DragEvent) {
     e.preventDefault()
@@ -160,6 +129,20 @@ export default function HomePage({ onOpenRun }: Props) {
               {t.home.runCta}
             </button>
           </form>
+          <div className="home-categories">
+            <h4>{t.categories.title}</h4>
+            <p className="home-help">{t.categories.editHint}</p>
+            <div className="cat-editor">
+              {categories.map((category, index) => (
+                <div className="cat-editor-row" key={index}>
+                  <input value={category.name} onChange={(event) => setCategories((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item))} placeholder={t.categories.namePlaceholder} />
+                  <input value={category.definition ?? ''} onChange={(event) => setCategories((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, definition: event.target.value } : item))} placeholder={t.categories.defPlaceholder} />
+                  <button type="button" className="link" onClick={() => setCategories((items) => items.filter((_, itemIndex) => itemIndex !== index))}>{t.categories.remove}</button>
+                </div>
+              ))}
+              <button type="button" onClick={() => setCategories((items) => [...items, { name: '', definition: '' }])} style={{ alignSelf: 'flex-start' }}>{t.categories.addRow}</button>
+            </div>
+          </div>
         </section>
 
         <HomeDashboard />
@@ -207,34 +190,6 @@ export default function HomePage({ onOpenRun }: Props) {
         </section>
 
         <section className="home-section">
-          <h3>{t.home.folder}</h3>
-          <p className="home-help">{t.home.folderHelp}</p>
-          <div className="folder-row">
-            <input
-              type="text"
-              className="folder-input"
-              value={pathDraft}
-              onChange={(e) => setPathDraft(e.target.value)}
-              placeholder="/Users/you/papers"
-              spellCheck={false}
-            />
-            <button className="primary" onClick={saveFolder} disabled={saving || !pathDraft.trim()}>
-              {saving ? t.home.saving : t.home.save}
-            </button>
-          </div>
-          {folderError && <div className="app-error home-inline-error">{folderError}</div>}
-          {settings && (
-            <div className="folder-status">
-              {settings.exists ? (
-                <span><b>{settings.n_pdfs}</b> {t.home.pdfsFound} · <code>{settings.papers_dir}</code></span>
-              ) : (
-                <span className="folder-missing">{t.home.missing}: <code>{settings.papers_dir}</code></span>
-              )}
-            </div>
-          )}
-        </section>
-
-        <section className="home-section">
           <h3>{t.home.upload}</h3>
           <p className="home-help">{t.home.uploadHelp}</p>
           <div
@@ -278,6 +233,7 @@ export default function HomePage({ onOpenRun }: Props) {
       {showRun && (
         <NewRunForm
           initialQuery={queryDraft.trim()}
+          initialCategories={categories}
           onClose={() => setShowRun(false)}
           onDone={(id) => {
             setShowRun(false)
