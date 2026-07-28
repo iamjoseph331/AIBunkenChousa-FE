@@ -32,6 +32,14 @@ export default function ConceptGraph() {
   const [pos, setPos] = useState<Record<string, Pos>>({})
   const [estimate, setEstimate] = useState<ConceptEstimate | null>(null)
   const [seed, setSeed] = useState<ConceptSeed>('citation')
+  // v0.2 Step 8b: subset-size slider. Larger n makes more meaningful
+  // clustering possible but the pair count grows ~n²; the estimate above
+  // updates live so the user sees the cost before committing.
+  const [subsetSize, setSubsetSize] = useState<number>(() => {
+    const raw = localStorage.getItem('aibc-concept-subset-size')
+    const n = raw ? Number(raw) : 20
+    return Number.isFinite(n) && n >= 20 && n <= 100 ? n : 20
+  })
   const [estimating, setEstimating] = useState(false)
   const [building, setBuilding] = useState(false)
   const [progress, setProgress] = useState<{ done: number; total: number | null } | null>(null)
@@ -52,9 +60,9 @@ export default function ConceptGraph() {
     return () => esRef.current?.close()
   }, [])
 
-  const loadGraph = useCallback(async (id: number) => {
+  const loadGraph = useCallback(async (id: number, n: number) => {
     try {
-      const g = await api.conceptGraph(id)
+      const g = await api.conceptGraph(id, n)
       setGraph(g)
       setPos(computeLayout(g.nodes, g.edges.filter((e) => e.relation !== 'neutral'), VW, VH))
     } catch (e) {
@@ -67,15 +75,31 @@ export default function ConceptGraph() {
     setSelNode(null)
     setSelEdge(null)
     setEstimate(null)
-    loadGraph(runId)
-  }, [runId, loadGraph])
+    loadGraph(runId, subsetSize)
+  }, [runId, subsetSize, loadGraph])
+
+  // Re-price the build when the user drags the slider, if the estimate panel
+  // is open. Debounced by React's normal batching — cheap endpoint, no LLM.
+  useEffect(() => {
+    if (runId == null || !estimate) return
+    let cancelled = false
+    api.conceptEstimate(runId, seed, subsetSize).then(
+      (e) => { if (!cancelled) setEstimate(e) },
+      () => { /* silent — the estimate panel just keeps its last value */ },
+    )
+    return () => { cancelled = true }
+  }, [subsetSize, seed, runId, estimate])
+
+  useEffect(() => {
+    localStorage.setItem('aibc-concept-subset-size', String(subsetSize))
+  }, [subsetSize])
 
   async function askBuild() {
     if (runId == null) return
     setEstimating(true)
     setError(null)
     try {
-      setEstimate(await api.conceptEstimate(runId, seed))
+      setEstimate(await api.conceptEstimate(runId, seed, subsetSize))
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e))
     } finally {
@@ -107,7 +131,7 @@ export default function ConceptGraph() {
       es.close()
       setBuilding(false)
       setProgress(null)
-      loadGraph(runId)
+      loadGraph(runId, subsetSize)
     })
     on('error', (d) => {
       add(`● error — ${d.error}`)
@@ -118,7 +142,7 @@ export default function ConceptGraph() {
     })
     es.onerror = () => { es.close(); setBuilding(false); setProgress(null) }
 
-    api.buildConcept(runId, seed).catch((e) => {
+    api.buildConcept(runId, seed, subsetSize).catch((e) => {
       es.close()
       setBuilding(false)
       setError(String(e instanceof Error ? e.message : e))
@@ -196,6 +220,21 @@ export default function ConceptGraph() {
               {t.concept.seedSimilarity}
             </button>
           </div>
+          {/* v0.2 Step 8b: subset-size slider — snaps to 20/40/60/80/100 */}
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-sm)', color: 'var(--ink-2)' }}
+                 title="Number of top-relevance papers to include in the graph. Pair count grows ~n²; the estimate re-prices live.">
+            nodes:
+            <input
+              type="range" min={20} max={100} step={20}
+              value={subsetSize}
+              onChange={(e) => setSubsetSize(Number(e.target.value))}
+              disabled={building}
+              style={{ width: 96 }}
+            />
+            <span style={{ fontVariantNumeric: 'tabular-nums', minWidth: 24, textAlign: 'right', color: 'var(--ink)' }}>
+              {subsetSize}
+            </span>
+          </label>
         </div>
         {graph && (
           <div className="cite-stats">

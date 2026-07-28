@@ -446,12 +446,15 @@ export const api = {
   },
   citationEventsUrl: () => `${API_BASE}/api/citations/events`,
 
-  // concept graph (Phase 3)
-  conceptGraph: (runId: number) => get<ConceptGraphData>(`/runs/${runId}/concept/graph`),
-  conceptEstimate: (runId: number, seed: ConceptSeed = 'citation') =>
-    get<ConceptEstimate>(`/runs/${runId}/concept/estimate?seed=${seed}`),
-  buildConcept: (runId: number, seed: ConceptSeed = 'citation') =>
-    post<{ status: string }>(`/runs/${runId}/concept/build?seed=${seed}`, {}, { claudeKey: true }),
+  // concept graph (Phase 3, v0.2 Step 8b adds an `n` param for the subset size)
+  conceptGraph: (runId: number, n?: number) =>
+    get<ConceptGraphData>(`/runs/${runId}/concept/graph${n ? `?n=${n}` : ''}`),
+  conceptEstimate: (runId: number, seed: ConceptSeed = 'citation', n?: number) =>
+    get<ConceptEstimate>(`/runs/${runId}/concept/estimate?seed=${seed}${n ? `&n=${n}` : ''}`),
+  buildConcept: (runId: number, seed: ConceptSeed = 'citation', n?: number) =>
+    post<{ status: string }>(
+      `/runs/${runId}/concept/build?seed=${seed}${n ? `&n=${n}` : ''}`, {}, { claudeKey: true },
+    ),
   conceptEventsUrl: (runId: number) => `${API_BASE}/api/runs/${runId}/concept/events`,
 
   // enrichment (v0.2 Step 1) — free, no Claude key
