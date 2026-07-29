@@ -1,5 +1,30 @@
-import type { Confidence, EvidenceStatus, StanceLabel } from '../api'
+import type { Confidence, EvidenceStatus, PaperCategoryAssignment, StanceLabel } from '../api'
 import { useT } from '../i18n'
+import { categoryVar } from '../categoryColor'
+
+function arcPath(radius: number, start: number, end: number): string {
+  const point = (angle: number) => [Math.cos(angle) * radius, Math.sin(angle) * radius]
+  const [sx, sy] = point(start)
+  const [ex, ey] = point(end)
+  return `M 0 0 L ${sx} ${sy} A ${radius} ${radius} 0 ${end - start > Math.PI ? 1 : 0} 1 ${ex} ${ey} Z`
+}
+
+/** SVG node fill split by category confidence, with the independent stance
+ * encoded by its outline. This keeps multi-label categorisation legible in the
+ * graphs without losing the query-position signal. */
+export function CategoryPie({ categories, radius, stance, selected = false }: { categories?: PaperCategoryAssignment[]; radius: number; stance?: StanceLabel | null; selected?: boolean }) {
+  const slices = (categories ?? []).slice(0, 8)
+  const total = slices.reduce((sum, category) => sum + Math.max(category.confidence || 0, 0.1), 0)
+  let angle = -Math.PI / 2
+  const outline = stance ? `var(--st-${stance === 'not_addressed' ? 'na' : stance}-ink)` : 'var(--border-strong)'
+  if (!slices.length) return <circle r={radius} className={`category-pie-outline${selected ? ' selected' : ''}`} fill="var(--surface-3)" stroke={outline} strokeWidth={1.8} />
+  return <g><title>{slices.map((c) => c.name).join(' · ')}</title>{slices.map((category) => {
+    const next = angle + (Math.PI * 2 * Math.max(category.confidence || 0, 0.1)) / total
+    const path = arcPath(radius, angle, next)
+    angle = next
+    return <path key={category.category_id} d={path} fill={categoryVar(category.color_slot)} />
+  })}<circle r={radius} className={`category-pie-outline${selected ? ' selected' : ''}`} fill="none" stroke={outline} strokeWidth={2.2} /></g>
+}
 
 export function StanceBadge({
   label,

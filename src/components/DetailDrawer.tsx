@@ -1,25 +1,34 @@
 import { useEffect, useState } from 'react'
-import { api, type AnalysisDetail, type Evidence, type EvidenceCheck } from '../api'
+import { api, type AnalysisDetail, type Evidence, type EvidenceCheck, type PaperCategoryAssignment, type PaperSubqueryAnswer } from '../api'
 import { ConfidenceDots, StanceBadge, StatusPill, TrustStrip } from './bits'
 import { useT } from '../i18n'
 
 interface Props {
   analysisId: number
   paperKey: string
+  runId: number | null
   onClose: () => void
   onOpenPdf: (key: string, page: number, quote: string) => void
 }
 
-export default function DetailDrawer({ analysisId, paperKey, onClose, onOpenPdf }: Props) {
+export default function DetailDrawer({ analysisId, paperKey, runId, onClose, onOpenPdf }: Props) {
   const [detail, setDetail] = useState<AnalysisDetail | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [categories, setCategories] = useState<PaperCategoryAssignment[]>([])
+  const [subqueryAnswers, setSubqueryAnswers] = useState<PaperSubqueryAnswer[]>([])
   const t = useT()
 
   useEffect(() => {
     setDetail(null)
     setError(null)
+    setCategories([])
+    setSubqueryAnswers([])
     api.analysis(analysisId).then(setDetail, (e) => setError(String(e)))
-  }, [analysisId])
+    if (runId != null) {
+      api.paperCategories(runId, paperKey).then(setCategories, () => setCategories([]))
+      api.paperSubqueries(runId, paperKey).then(setSubqueryAnswers, () => setSubqueryAnswers([]))
+    }
+  }, [analysisId, paperKey, runId])
 
   // Verification status keyed by field|page|quote so each rendered quote shows its pill.
   const checks = new Map<string, EvidenceCheck>()
@@ -45,6 +54,12 @@ export default function DetailDrawer({ analysisId, paperKey, onClose, onOpenPdf 
       {items.length === 0 && <li className="ev-none">{t.drawer.noEvidence}</li>}
     </ul>
   )
+
+  const StoredGrounding = ({ page, quote, field }: { page: number | null | undefined; quote: string | null | undefined; field?: string }) => {
+    if (page == null || !quote) return <p className="ev-none">{t.drawer.noEvidence}</p>
+    const check = field ? checks.get(`${field}|${page}|${quote}`) : undefined
+    return <div className="ev-item"><blockquote>“{quote}”</blockquote><div className="ev-meta"><button className="pagelink" onClick={() => onOpenPdf(paperKey, check?.found_page ?? page, quote)}>p.{page} →</button>{check && <StatusPill status={check.status} />}</div></div>
+  }
 
   return (
     <aside className="drawer">
@@ -115,6 +130,32 @@ export default function DetailDrawer({ analysisId, paperKey, onClose, onOpenPdf 
               ),
             )}
           </section>
+
+          {categories.length > 0 && (
+            <section>
+              <h3>{t.categories.title}</h3>
+              {categories.map((category) => (
+                <div key={category.category_id} className="drawer-grounding">
+                  <div className="meta-head"><b>{category.name}</b><span className="meta-value">{Math.round(category.confidence * 100)}%</span></div>
+                  {category.rationale && <p className="reasoning">{category.rationale}</p>}
+                  <StoredGrounding page={category.evidence_page} quote={category.evidence_quote} field={`categories[${detail.analysis.categories?.findIndex((item) => item.category === category.name) ?? -1}]`} />
+                </div>
+              ))}
+            </section>
+          )}
+
+          {subqueryAnswers.length > 0 && (
+            <section>
+              <h3>{t.subqueries.title}</h3>
+              {subqueryAnswers.map((answer) => (
+                <div key={answer.subquery_id} className="drawer-grounding">
+                  <div className="meta-head"><b>{answer.label ?? answer.subquery_id}</b><span className={`sq-chip sq-chip-${answer.stance}`}>{t.subqueries.stance[answer.stance]}</span></div>
+                  {answer.finding && <p className="reasoning">{answer.finding}</p>}
+                  <StoredGrounding page={answer.evidence_page} quote={answer.evidence_quote} field={`subqueries.${answer.subquery_id}`} />
+                </div>
+              ))}
+            </section>
+          )}
         </div>
       )}
     </aside>

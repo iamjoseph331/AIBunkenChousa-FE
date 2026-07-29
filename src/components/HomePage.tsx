@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
-import { api, type CategoryDef } from '../api'
+import { api, type CategoryDef, type SubqueryDef } from '../api'
 import { ConfidenceDots, StanceBadge, TrustBar } from './bits'
 import NewRunForm from './NewRunForm'
 import HomeDashboard from './HomeDashboard'
@@ -67,6 +67,7 @@ export default function HomePage({ onOpenRun }: Props) {
   const t = useT()
   const [queryDraft, setQueryDraft] = useState('')
   const [categories, setCategories] = useState<CategoryDef[]>([])
+  const [subqueries, setSubqueries] = useState<SubqueryDef[]>([])
   const [showRun, setShowRun] = useState(false)
   const [dragActive, setDragActive] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -135,12 +136,36 @@ export default function HomePage({ onOpenRun }: Props) {
             <div className="cat-editor">
               {categories.map((category, index) => (
                 <div className="cat-editor-row" key={index}>
+                  <button
+                    type="button"
+                    className="category-slot-swatch"
+                    style={{ background: `var(--cat-${category.color_slot ?? (index % 10) + 1})` }}
+                    title={t.settings.categoryColor}
+                    onClick={() => setCategories((items) => items.map((item, itemIndex) => itemIndex === index
+                      ? { ...item, color_slot: ((item.color_slot ?? index + 1) % 10) + 1 }
+                      : item))}
+                  />
                   <input value={category.name} onChange={(event) => setCategories((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item))} placeholder={t.categories.namePlaceholder} />
                   <input value={category.definition ?? ''} onChange={(event) => setCategories((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, definition: event.target.value } : item))} placeholder={t.categories.defPlaceholder} />
                   <button type="button" className="link" onClick={() => setCategories((items) => items.filter((_, itemIndex) => itemIndex !== index))}>{t.categories.remove}</button>
                 </div>
               ))}
-              <button type="button" onClick={() => setCategories((items) => [...items, { name: '', definition: '' }])} style={{ alignSelf: 'flex-start' }}>{t.categories.addRow}</button>
+              <button type="button" onClick={() => setCategories((items) => [...items, { name: '', definition: '', color_slot: (items.length % 10) + 1 }])} style={{ alignSelf: 'flex-start' }}>{t.categories.addRow}</button>
+            </div>
+          </div>
+          <div className="home-subqueries">
+            <h4>{t.subqueries.title}</h4>
+            <p className="home-help">{t.subqueries.editHint}</p>
+            <div className="sq-rows">
+              {subqueries.map((subquery, index) => (
+                <div className="sq-row" key={index}>
+                  <input value={subquery.label} onChange={(event) => setSubqueries((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, label: event.target.value } : item))} placeholder={t.subqueries.labelPlaceholder} />
+                  <input value={subquery.question} onChange={(event) => setSubqueries((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, question: event.target.value } : item))} placeholder={t.subqueries.questionPlaceholder} />
+                  <input className="sq-id" value={subquery.id ?? ''} onChange={(event) => setSubqueries((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, id: event.target.value || null } : item))} placeholder={t.subqueries.idLabel} />
+                  <button type="button" className="sq-remove" aria-label="Remove" onClick={() => setSubqueries((items) => items.filter((_, itemIndex) => itemIndex !== index))}>✕</button>
+                </div>
+              ))}
+              <button type="button" className="sq-add" onClick={() => setSubqueries((items) => [...items, { id: null, label: '', question: '' }])}>+ {t.subqueries.addRow}</button>
             </div>
           </div>
         </section>
@@ -234,6 +259,7 @@ export default function HomePage({ onOpenRun }: Props) {
         <NewRunForm
           initialQuery={queryDraft.trim()}
           initialCategories={categories}
+          initialSubqueries={subqueries}
           onClose={() => setShowRun(false)}
           onDone={(id) => {
             setShowRun(false)

@@ -9,7 +9,7 @@ import {
   type ColumnFiltersState,
   type SortingState,
 } from '@tanstack/react-table'
-import type { ReportRow, StanceLabel } from '../api'
+import type { ReportRow, StanceLabel, SubqueryStance } from '../api'
 import { StanceBadge, TrustStrip } from './bits'
 import { useT } from '../i18n'
 import {
@@ -18,20 +18,13 @@ import {
   type Scored,
 } from '../importance'
 import { categoryClass } from '../categoryColor'
+import { filterByYear, yearBounds, type YearRange } from '../time'
+import type { SubqueryFilter } from '../subqueryFilter'
+import { matchesSubqueryFilter } from '../subqueryFilter'
 
 const col = createColumnHelper<ReportRow>()
 
 const STANCES: StanceLabel[] = ['supportive', 'mixed', 'neutral', 'critical', 'not_addressed']
-
-/** Stable 32-bit-ish hash for turning category ids into a 1..10 color slot when
- * we don't have the canonical color_slot on the row (the current join returns
- * the slot only via the CategoriesPayload, not per-row). Deterministic across
- * runs so the same category always gets the same color. */
-function hashString(s: string): number {
-  let h = 5381
-  for (let i = 0; i < s.length; i++) h = ((h << 5) + h) ^ s.charCodeAt(i)
-  return h >>> 0
-}
 
 function isTyping(el: EventTarget | null): boolean {
   const n = el as HTMLElement | null
@@ -53,6 +46,9 @@ interface Props {
   weights: ImportanceWeights
   countryFilter?: { codes: string[]; label: string; mode: 'author' | 'target' } | null
   onClearCountryFilter: () => void
+  yearRange?: YearRange | null
+  includeUndated?: boolean
+  subqueryFilter: SubqueryFilter | null
 }
 
 export default function ReportTable({
@@ -68,6 +64,9 @@ export default function ReportTable({
   weights,
   countryFilter,
   onClearCountryFilter,
+  yearRange = null,
+  includeUndated = true,
+  subqueryFilter,
 }: Props) {
   const t = useT()
   // v0.2: default sort is by importance (weighted blend), replacing relevance_score.
@@ -85,7 +84,21 @@ export default function ReportTable({
     else setSorting([{ id: 'importance', desc: true }])
   }, [embedScores])
 
-  const importanceMap = useMemo(() => scoreRows(rows, weights), [rows, weights])
+  // Pin recency normalisation to the unfiltered rows' year bounds so importance
+  // scores don't jitter when the year slider is dragged (see time.ts note).
+  const unfilteredBounds = useMemo(() => yearBounds(rows), [rows])
+  const importanceMap = useMemo(
+    () => scoreRows(rows, weights, undefined, unfilteredBounds),
+    [rows, weights, unfilteredBounds],
+  )
+
+  // v0.3: subquery set is attached to every row by run_report; pull once from
+  // the first row so subquery columns/facets can be defined declaratively.
+  const subquerySet = rows[0]?.subquery_set ?? null
+
+  function stanceChipClass(s: SubqueryStance): string {
+    return `sq-chip sq-chip-${s}`
+  }
 
   const columns = useMemo(
     () => [
@@ -171,12 +184,10 @@ export default function ReportTable({
             return (
               <span className="cat-chips">
                 {cats.slice(0, 4).map((cat) => {
-                  // Recover the color slot from the id string via a stable hash into 1..10.
-                  const slot = ((hashString(cat.category_id) % 10) + 10) % 10 + 1
                   return (
                     <span
                       key={cat.category_id}
-                      className={`cat-chip ${categoryClass(slot)} ${cat.is_primary ? 'primary' : 'secondary'}`}
+                      className={`cat-chip ${categoryClass(cat.color_slot)} ${cat.is_primary ? 'primary' : 'secondary'}`}
                       title={`${cat.name}${cat.is_primary ? ' (primary)' : ''}`}
                     >
                       {cat.name}
@@ -264,14 +275,45 @@ export default function ReportTable({
         header: t.report.cost,
         cell: (c) => <span className="num">{c.getValue() ? `$${c.getValue().toFixed(3)}` : '—'}</span>,
       }),
+      // One answer column per sub-question, always visible and in the order
+      // defined before the run.
+      ...(subquerySet ? subquerySet.subqueries
+        .map((sq) => col.accessor((r) => r.subquery_answers?.[sq.id]?.stance ?? '', {
+          id: `sq:${sq.id}`,
+          header: sq.label,
+          cell: (c) => {
+            const a = c.row.original.subquery_answers?.[sq.id]
+            if (!a) return <span className="ink-3">—</span>
+            return (
+              <span className="cell-sq" title={a.finding ?? ''}>
+                <span className={stanceChipClass(a.stance)}>{t.subqueries.stance[a.stance]}</span>
+                {a.finding && <span className="cell-sq-finding">{a.finding}</span>}
+              </span>
+            )
+          },
+          filterFn: (row, id, value) => !value || row.getValue(id) === value,
+          size: 220,
+        })) : []),
     ],
-    [embedScores, t, importanceMap],
+    [embedScores, t, importanceMap, subquerySet],
   )
 
+  const filteredRows = useMemo(() => {
+    // Compose the two lifted prefilters (country, year) before TanStack's own
+    // column filters. Keep this a plain `.filter` chain so any future lifted
+    // filter slots in the same way.
+    let out = rows
+    if (countryFilter) {
+      out = out.filter((row) => (countryFilter.mode === 'author' ? row.author_countries : row.target_countries)
+        ?.some((code) => countryFilter.codes.includes(code)))
+    }
+    if (yearRange) out = filterByYear(out, yearRange, includeUndated)
+    out = out.filter((row) => matchesSubqueryFilter(row, subqueryFilter))
+    return out
+  }, [rows, countryFilter, yearRange, includeUndated, subqueryFilter])
+
   const table = useReactTable({
-    data: countryFilter
-      ? rows.filter((row) => (countryFilter.mode === 'author' ? row.author_countries : row.target_countries)?.some((code) => countryFilter.codes.includes(code)))
-      : rows,
+    data: filteredRows,
     columns,
     state: { sorting, globalFilter, columnFilters },
     onSortingChange: setSorting,

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { api, type ReportRow, type Run, type RunDetail } from '../api'
 import ReportTable from './ReportTable'
 import DetailDrawer from './DetailDrawer'
@@ -6,8 +6,9 @@ import NewRunForm from './NewRunForm'
 import AddPapersForm from './AddPapersForm'
 import PdfViewer from './PdfViewer'
 import { useT } from '../i18n'
-import { formatDuration } from '../time'
+import { formatDuration, type YearRange } from '../time'
 import type { ImportanceWeights } from '../importance'
+import type { SubqueryFilter } from '../subqueryFilter'
 
 interface PdfState {
   key: string
@@ -17,19 +18,30 @@ interface PdfState {
 
 /** The report surface: run picker, sortable/filterable table, provenance drawer,
  * pdf click-through, and the free embedding re-rank. Extracted from App so the
- * top-level shell can host Home / Report / Citations tabs. */
+ * top-level shell can host Home / Report / Citations tabs.
+ *
+ * v0.3: runId is now controlled by App so switching runs here also switches
+ * Geo/Stats/Concepts, and the App-level year slider is threaded in as filter
+ * props. */
 interface Props {
-  /** A run to preselect (e.g. one just started from the Home query bar). */
-  initialRunId?: number | null
+  runId: number | null
+  onRunIdChange: (id: number) => void
   weights: ImportanceWeights
   countryFilter?: { codes: string[]; label: string; mode: 'author' | 'target' } | null
   onClearCountryFilter: () => void
+  yearRange: YearRange | null
+  includeUndated: boolean
+  subqueryFilter: SubqueryFilter | null
+  /** App-rendered TimelineSlider; view renders it directly under its own run picker. */
+  slider?: ReactNode
 }
 
-export default function ReportView({ initialRunId, weights, countryFilter, onClearCountryFilter }: Props) {
+export default function ReportView({
+  runId, onRunIdChange, weights, countryFilter, onClearCountryFilter,
+  yearRange, includeUndated, subqueryFilter, slider,
+}: Props) {
   const t = useT()
   const [runs, setRuns] = useState<Run[]>([])
-  const [runId, setRunId] = useState<number | null>(initialRunId ?? null)
   const [detail, setDetail] = useState<RunDetail | null>(null)
   const [selected, setSelected] = useState<ReportRow | null>(null)
   const [pdf, setPdf] = useState<PdfState | null>(null)
@@ -44,15 +56,19 @@ export default function ReportView({ initialRunId, weights, countryFilter, onCle
     try {
       const rs = await api.runs()
       setRuns(rs)
-      setRunId((cur) => selectId ?? cur ?? (rs[0]?.id ?? null))
+      // If nothing is selected yet, adopt the newest run so the picker is not blank.
+      if (selectId != null) onRunIdChange(selectId)
+      else if (runId == null && rs.length > 0) onRunIdChange(rs[0].id)
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e))
     }
-  }, [])
+  }, [onRunIdChange, runId])
 
   useEffect(() => {
     loadRuns()
-  }, [loadRuns])
+    // Load once on mount; subsequent refreshes happen via explicit loadRuns(id).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     if (runId == null) return
@@ -99,7 +115,7 @@ export default function ReportView({ initialRunId, weights, countryFilter, onCle
       <div className="subtoolbar">
         <label className="run-picker">
           {t.report.runLabel}
-          <select value={runId ?? ''} onChange={(e) => { onClearCountryFilter(); setRunId(Number(e.target.value)) }}>
+          <select value={runId ?? ''} onChange={(e) => { onClearCountryFilter(); onRunIdChange(Number(e.target.value)) }}>
             {runs.map((r) => (
               <option key={r.id} value={r.id}>
                 #{r.id} · {r.query ? r.query.slice(0, 40) : t.report.noQuery} · {r.n_papers ?? '?'}p · {r.status}
@@ -118,6 +134,8 @@ export default function ReportView({ initialRunId, weights, countryFilter, onCle
         )}
         <button className="primary subtoolbar-cta" onClick={() => setShowNewRun(true)}>{t.report.newRun}</button>
       </div>
+
+      {slider}
 
       {error && <div className="app-error">{error}</div>}
 
@@ -152,6 +170,9 @@ export default function ReportView({ initialRunId, weights, countryFilter, onCle
               weights={weights}
               countryFilter={countryFilter}
               onClearCountryFilter={onClearCountryFilter}
+              yearRange={yearRange}
+              includeUndated={includeUndated}
+              subqueryFilter={subqueryFilter}
             />
           ) : (
             <div className="loading">{runs.length ? t.report.loadingRun : t.report.noRuns}</div>
@@ -162,6 +183,7 @@ export default function ReportView({ initialRunId, weights, countryFilter, onCle
           <DetailDrawer
             analysisId={selected.id}
             paperKey={selected.paper_key}
+            runId={runId}
             onClose={() => setSelected(null)}
             onOpenPdf={(key, page, quote) => setPdf({ key, page, quote })}
           />

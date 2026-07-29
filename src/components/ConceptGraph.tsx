@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   api,
   type ConceptEdge,
@@ -6,12 +6,20 @@ import {
   type ConceptGraphData,
   type ConceptNode,
   type ConceptSeed,
+  type ReportRow,
   type Run,
+  type SubqueryDefStored,
 } from '../api'
 import { computeLayout, type Pos } from './graphLayout'
 import { useT } from '../i18n'
+import type { YearRange } from '../time'
 import ProgressBar from './ProgressBar'
 import PdfViewer from './PdfViewer'
+import { CategoryPie } from './bits'
+import type { SubqueryFilter } from '../subqueryFilter'
+import { matchesSubqueryFilter } from '../subqueryFilter'
+import SubqueryFilterControl from './SubqueryFilterControl'
+import { primaryCategory } from '../categoryColor'
 
 const VW = 960
 const VH = 620
@@ -20,16 +28,39 @@ function radius(n: ConceptNode): number {
   return 9 + ((n.relevance ?? 0) / 100) * 10
 }
 
+// v0.3 cluster-by state — one selector value:
+//   'category' — group by the run's user-defined primary category (default).
+//   'none' — no clustering.
+//   'stance' — group nodes by stance toward the query (same as node color).
+//   `sq:${id}` — group nodes by the paper's answer stance to that subquery.
+type ClusterMode = 'none' | 'stance' | string
+
+interface Props {
+  runId: number | null
+  onRunIdChange: (id: number) => void
+  yearRange: YearRange | null
+  includeUndated: boolean
+  slider?: ReactNode
+  subqueryFilter: SubqueryFilter | null
+  onSubqueryFilterChange: (filter: SubqueryFilter | null) => void
+}
+
 /** Phase 3 concept graph. Nodes are a run's most-relevant papers (colored by stance
  * toward the query, sized by relevance); edges are LLM-classified relations between
  * papers' claims — blue = supporting, red = opposing (neutral pairs aren't drawn).
- * The build costs money, so it is gated behind an explicit Start + cost-confirm. */
-export default function ConceptGraph() {
+ * The build costs money, so it is gated behind an explicit Start + cost-confirm.
+ *
+ * v0.3: adds a year filter (App-level slider) and a cluster-by selector that
+ * feeds the shared graphLayout `groups` param to pull same-answer nodes closer. */
+export default function ConceptGraph({ runId, onRunIdChange, yearRange, includeUndated, slider, subqueryFilter, onSubqueryFilterChange }: Props) {
   const t = useT()
   const [runs, setRuns] = useState<Run[]>([])
-  const [runId, setRunId] = useState<number | null>(null)
   const [graph, setGraph] = useState<ConceptGraphData | null>(null)
+  const [reportRows, setReportRows] = useState<ReportRow[]>([])
   const [pos, setPos] = useState<Record<string, Pos>>({})
+  const [cluster, setCluster] = useState<ClusterMode>(
+    () => (localStorage.getItem('aibc-concept-cluster') as ClusterMode) || 'category',
+  )
   const [estimate, setEstimate] = useState<ConceptEstimate | null>(null)
   const [seed, setSeed] = useState<ConceptSeed>('citation')
   // v0.2 Step 8b: subset-size slider. Larger n makes more meaningful
@@ -55,20 +86,27 @@ export default function ConceptGraph() {
   useEffect(() => {
     api.runs().then((rs) => {
       setRuns(rs)
-      setRunId((cur) => cur ?? rs[0]?.id ?? null)
+      if (runId == null && rs.length > 0) onRunIdChange(rs[0].id)
     }, (e) => setError(String(e)))
     return () => esRef.current?.close()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const loadGraph = useCallback(async (id: number, n: number) => {
     try {
       const g = await api.conceptGraph(id, n)
       setGraph(g)
-      setPos(computeLayout(g.nodes, g.edges.filter((e) => e.relation !== 'neutral'), VW, VH))
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e))
     }
   }, [])
+
+  // Also pull the run's report rows so we can look up per-paper subquery
+  // answers for clustering (the graph payload itself doesn't carry them).
+  useEffect(() => {
+    if (runId == null) return
+    api.run(runId).then((d) => setReportRows(d.report), () => setReportRows([]))
+  }, [runId])
 
   useEffect(() => {
     if (runId == null) return
@@ -77,6 +115,8 @@ export default function ConceptGraph() {
     setEstimate(null)
     loadGraph(runId, subsetSize)
   }, [runId, subsetSize, loadGraph])
+
+  useEffect(() => localStorage.setItem('aibc-concept-cluster', cluster), [cluster])
 
   // Re-price the build when the user drags the slider, if the estimate panel
   // is open. Debounced by React's normal batching — cheap endpoint, no LLM.
@@ -172,17 +212,86 @@ export default function ConceptGraph() {
     setPos((prev) => ({ ...prev, [dragRef.current as string]: toSvg(e.clientX, e.clientY) }))
   }
 
-  const byKey = useMemo(() => new Map((graph?.nodes ?? []).map((n) => [n.key, n])), [graph])
-  const drawn = useMemo(() => (graph?.edges ?? []).filter((e) => e.relation !== 'neutral'), [graph])
+  // v0.3 — visibility filter (year range) and cluster groups, mirroring the
+  // triple-useMemo pattern in CitationGraph so orphan edges and stale
+  // selections can't happen.
+  const rowsByPaper = useMemo(() => new Map(reportRows.map((row) => [row.paper_key, row])), [reportRows])
+  const visibleNodes = useMemo(
+    () => (graph?.nodes ?? []).filter((n) => {
+      if (n.year == null && !includeUndated) return false
+      if (n.year != null && yearRange && !(n.year >= yearRange.lo && n.year <= yearRange.hi)) return false
+      return matchesSubqueryFilter(rowsByPaper.get(n.key) ?? ({ subquery_answers: {} } as ReportRow), subqueryFilter)
+    }),
+    [graph, yearRange, includeUndated, rowsByPaper, subqueryFilter],
+  )
+  const visibleKeys = useMemo(() => new Set(visibleNodes.map((n) => n.key)), [visibleNodes])
+  const drawn = useMemo(
+    () => (graph?.edges ?? []).filter(
+      (e) => e.relation !== 'neutral' && visibleKeys.has(e.source) && visibleKeys.has(e.target),
+    ),
+    [graph, visibleKeys],
+  )
+  const byKey = useMemo(() => new Map(visibleNodes.map((n) => [n.key, n])), [visibleNodes])
+
+  // Look up subquery answers per paper for the cluster-by picker. The
+  // currently-selected subquery set is on any report row; the concept graph
+  // reads it out and joins per-paper answers by paper_key.
+  const subquerySet: { id: number; subqueries: SubqueryDefStored[] } | null = reportRows[0]?.subquery_set ?? null
+  const answersByPaper = useMemo(() => {
+    const m = new Map<string, Record<string, string>>()
+    for (const r of reportRows) {
+      const answers: Record<string, string> = {}
+      for (const [sqId, a] of Object.entries(r.subquery_answers ?? {})) {
+        answers[sqId] = a.stance
+      }
+      m.set(r.paper_key, answers)
+    }
+    return m
+  }, [reportRows])
+
+  const groups: Record<string, string | null> | undefined = useMemo(() => {
+    if (cluster === 'none') return undefined
+    const g: Record<string, string | null> = {}
+    for (const n of visibleNodes) {
+      if (cluster === 'category') {
+        g[n.key] = primaryCategory(n.categories)?.category_id ?? null
+      } else if (cluster === 'stance') {
+        g[n.key] = n.stance ?? null
+      } else if (cluster.startsWith('sq:')) {
+        const sqId = cluster.slice(3)
+        g[n.key] = answersByPaper.get(n.key)?.[sqId] ?? null
+      }
+    }
+    return g
+  }, [cluster, visibleNodes, answersByPaper])
+
+  // Recompute the layout when the visible set OR clustering changes. Unlike
+  // the original one-shot in loadGraph, this re-runs on every drag through
+  // the year slider (320 iters × O(n²), fine for n ≤ 100).
+  useEffect(() => {
+    if (visibleNodes.length === 0) { setPos({}); return }
+    setPos(computeLayout(visibleNodes, drawn, VW, VH, groups))
+  }, [visibleNodes, drawn, groups])
+
+  // Drop stale selection when a filter/cluster change hides the picked node/edge.
+  useEffect(() => {
+    if (selNode && !visibleKeys.has(selNode)) setSelNode(null)
+  }, [selNode, visibleKeys])
+  useEffect(() => {
+    if (selEdge && (!visibleKeys.has(selEdge.source) || !visibleKeys.has(selEdge.target))) {
+      setSelEdge(null)
+    }
+  }, [selEdge, visibleKeys])
+
   const counts = useMemo(() => {
     const c = { supporting: 0, opposing: 0, neutral: 0 }
-    for (const e of graph?.edges ?? []) c[e.relation]++
+    for (const e of drawn) c[e.relation]++
     return c
-  }, [graph])
+  }, [drawn])
 
   const sel = selNode ? byKey.get(selNode) : null
   const selEdges = sel ? drawn.filter((e) => e.source === sel.key || e.target === sel.key) : []
-  const hasNodes = graph && graph.nodes.length > 0
+  const hasNodes = visibleNodes.length > 0
   const built = graph?.built
 
   return (
@@ -191,7 +300,7 @@ export default function ConceptGraph() {
         <div className="cite-toolbar-left">
           <label className="run-picker">
             {t.concept.run}
-            <select value={runId ?? ''} onChange={(e) => setRunId(Number(e.target.value))}>
+            <select value={runId ?? ''} onChange={(e) => onRunIdChange(Number(e.target.value))}>
               {runs.map((r) => (
                 <option key={r.id} value={r.id}>
                   #{r.id} · {r.query ? r.query.slice(0, 36) : t.report.noQuery} · {r.n_papers ?? '?'}p
@@ -235,15 +344,32 @@ export default function ConceptGraph() {
               {subsetSize}
             </span>
           </label>
+          {/* v0.3 cluster-by selector: seed the shared graphLayout `groups`
+              param so nodes sharing the picked answer sit closer. */}
+          <label className="concept-cluster" title={t.subqueries.clusterBy}>
+            {t.subqueries.clusterBy}:
+            <select value={cluster} onChange={(e) => setCluster(e.target.value)}>
+              <option value="category">{t.subqueries.clusterCategory}</option>
+              <option value="none">{t.subqueries.clusterNone}</option>
+              <option value="stance">{t.subqueries.clusterStance}</option>
+              {subquerySet?.subqueries.map((sq) => (
+                <option key={sq.id} value={`sq:${sq.id}`}>{t.subqueries.clusterSubquery}: {sq.label}</option>
+              ))}
+            </select>
+          </label>
+          <SubqueryFilterControl rows={reportRows} value={subqueryFilter} onChange={onSubqueryFilterChange} />
         </div>
         {graph && (
           <div className="cite-stats">
-            <span><b>{graph.n_nodes}</b> {t.concept.papers}</span>
+            <span><b>{visibleNodes.length}</b>{yearRange && graph.n_nodes !== visibleNodes.length && (
+              <span className="ink-3"> /{graph.n_nodes}</span>
+            )} {t.concept.papers}</span>
             <span className="concept-stat sup"><b>{counts.supporting}</b> {t.concept.supporting}</span>
             <span className="concept-stat opp"><b>{counts.opposing}</b> {t.concept.opposing}</span>
           </div>
         )}
       </div>
+      {slider}
 
       {estimate && (
         <div className="concept-confirm">
@@ -309,7 +435,7 @@ export default function ConceptGraph() {
                   </line>
                 )
               })}
-              {graph!.nodes.map((n) => {
+              {visibleNodes.map((n) => {
                 const p = pos[n.key]
                 if (!p) return null
                 const r = radius(n)
@@ -325,7 +451,7 @@ export default function ConceptGraph() {
                     onPointerDown={(e) => onPointerDown(n.key, e)}
                     onClick={(e) => { e.stopPropagation(); setSelNode(n.key); setSelEdge(null) }}
                   >
-                    <circle r={r} className="cnode-circle" />
+                    <CategoryPie categories={n.categories} radius={r} stance={n.stance} selected={isSel} />
                     <text y={r + 13} className="cite-label">
                       {n.title.length > 24 ? n.title.slice(0, 23) + '…' : n.title}
                     </text>

@@ -1,15 +1,25 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { api, type Run, type ReportRow } from '../api'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { api, type Run, type ReportRow, type SubqueryStance } from '../api'
 import { useT } from '../i18n'
 import { categoryClass } from '../categoryColor'
 import { countryName } from '../geo/iso'
+import { filterByYear, type YearRange } from '../time'
+import type { SubqueryFilter } from '../subqueryFilter'
+import { matchesSubqueryFilter } from '../subqueryFilter'
+import SubqueryFilterControl from './SubqueryFilterControl'
 
 // v0.2 Step 6. Run-scoped statistics: counts by type/field/venue/publisher/
 // country/category, plus a corpus summary strip. Hand-rolled SVG bars — no
 // chart library, no external assets. Per-chart export: CSV / SVG / PNG.
 
 interface Props {
-  initialRunId?: number | null
+  runId: number | null
+  onRunIdChange: (id: number) => void
+  yearRange: YearRange | null
+  includeUndated: boolean
+  slider?: ReactNode
+  subqueryFilter: SubqueryFilter | null
+  onSubqueryFilterChange: (filter: SubqueryFilter | null) => void
 }
 
 interface CountRow {
@@ -213,64 +223,140 @@ function YearTrend({ data, title }: { data: CountRow[]; title: string }) {
   )
 }
 
+// v0.3 — subquery stacked bars. One row per subquery, four segments (yes / mixed
+// / no / not_addressed) coloured with the shared --st-*-ink stance tokens so
+// the same visual language reads across Report chips, Stats bars, and Concept
+// graph node fills.
+interface SubqueryStackProps {
+  title: string
+  rows: { id: string; label: string; color_slot: number; counts: Record<SubqueryStance, number> }[]
+}
+function SubqueryStack({ title, rows }: SubqueryStackProps) {
+  const t = useT()
+  if (rows.length === 0) {
+    // Card only appears when the run has subqueries — StatsView skips it otherwise.
+    return null
+  }
+  return (
+    <div className="stats-card">
+      <div className="stats-card-header">
+        <h4>{title}</h4>
+      </div>
+      {rows.map((sq) => {
+        const total = sq.counts.yes + sq.counts.mixed + sq.counts.no + sq.counts.not_addressed
+        const pct = (n: number) => (total > 0 ? (n / total) * 100 : 0)
+        return (
+          <div key={sq.id} className="stats-stack">
+            <div className="stats-stack-label" title={sq.label}>
+              <b>{sq.label.length > 22 ? sq.label.slice(0, 21) + '…' : sq.label}</b>
+              <span className="ink-3">{total} {t.subqueries.total}</span>
+            </div>
+            <div className="stats-stack-bar">
+              {sq.counts.yes > 0 && (
+                <div className="stats-stack-seg stats-stack-seg-yes" style={{ width: `${pct(sq.counts.yes)}%` }}
+                     title={`${t.subqueries.stance.yes}: ${sq.counts.yes}`}>{sq.counts.yes}</div>
+              )}
+              {sq.counts.mixed > 0 && (
+                <div className="stats-stack-seg stats-stack-seg-mixed" style={{ width: `${pct(sq.counts.mixed)}%` }}
+                     title={`${t.subqueries.stance.mixed}: ${sq.counts.mixed}`}>{sq.counts.mixed}</div>
+              )}
+              {sq.counts.no > 0 && (
+                <div className="stats-stack-seg stats-stack-seg-no" style={{ width: `${pct(sq.counts.no)}%` }}
+                     title={`${t.subqueries.stance.no}: ${sq.counts.no}`}>{sq.counts.no}</div>
+              )}
+              {sq.counts.not_addressed > 0 && (
+                <div className="stats-stack-seg stats-stack-seg-na" style={{ width: `${pct(sq.counts.not_addressed)}%` }}
+                     title={`${t.subqueries.stance.not_addressed}: ${sq.counts.not_addressed}`}>{sq.counts.not_addressed}</div>
+              )}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+
 // --- main component --------------------------------------------------------
 
-export default function StatsView({ initialRunId }: Props) {
+export default function StatsView({ runId, onRunIdChange, yearRange, includeUndated, slider, subqueryFilter, onSubqueryFilterChange }: Props) {
   const t = useT()
   const [runs, setRuns] = useState<Run[]>([])
-  const [runId, setRunId] = useState<number | null>(initialRunId ?? null)
   const [rows, setRows] = useState<ReportRow[]>([])
 
   const loadRuns = useCallback(async () => {
     const rs = await api.runs()
     setRuns(rs)
-    setRunId((cur) => cur ?? rs[0]?.id ?? null)
-  }, [])
+    if (runId == null && rs.length > 0) onRunIdChange(rs[0].id)
+  }, [runId, onRunIdChange])
 
-  useEffect(() => { loadRuns() }, [loadRuns])
+  useEffect(() => { loadRuns() /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [])
 
   useEffect(() => {
     if (runId == null) return
     api.run(runId).then((d) => setRows(d.report), () => setRows([]))
   }, [runId])
 
-  const byType = useMemo(() => topN(tally(rows, (r) => r.pub_type), 10), [rows])
-  const byField = useMemo(() => topN(tally(rows, (r) => r.primary_field), 10), [rows])
-  const byVenue = useMemo(() => topN(tally(rows, (r) => r.venue_name), 12), [rows])
-  const byPublisher = useMemo(() => topN(tally(rows, (r) => r.publisher), 10), [rows])
+  // v0.3: apply the App-level year range live. All downstream memoisations
+  // key on `visibleRows` so a drag flows through every chart in one render.
+  const visibleRows = useMemo(() => filterByYear(rows, yearRange, includeUndated).filter((row) => matchesSubqueryFilter(row, subqueryFilter)), [rows, yearRange, includeUndated, subqueryFilter])
+
+  const byType = useMemo(() => topN(tally(visibleRows, (r) => r.pub_type), 10), [visibleRows])
+  const byField = useMemo(() => topN(tally(visibleRows, (r) => r.primary_field), 10), [visibleRows])
+  const byVenue = useMemo(() => topN(tally(visibleRows, (r) => r.venue_name), 12), [visibleRows])
+  const byPublisher = useMemo(() => topN(tally(visibleRows, (r) => r.publisher), 10), [visibleRows])
   const byCountry = useMemo(
-    () => topN(tallyMulti(rows, (r) => r.author_countries), 15, (c) => countryName(c)),
-    [rows],
+    () => topN(tallyMulti(visibleRows, (r) => r.author_countries), 15, (c) => countryName(c)),
+    [visibleRows],
   )
   const byCategory = useMemo(() => {
     // Only primary categories, coloured by hash slot to match the ReportTable chips.
     const m = new Map<string, number>()
     const nameOf = new Map<string, string>()
-    for (const r of rows) {
+    for (const r of visibleRows) {
       const primary = (r.categories || []).find((c) => c.is_primary)
       if (!primary) continue
       m.set(primary.category_id, (m.get(primary.category_id) ?? 0) + 1)
       nameOf.set(primary.category_id, primary.name)
     }
     return topN(m, 12).map((r) => {
-      // recover slot from id via the same stable hash used in ReportTable
-      let h = 5381
-      for (let i = 0; i < r.key.length; i++) h = ((h << 5) + h) ^ r.key.charCodeAt(i)
-      const slot = (((h >>> 0) % 10) % 10) + 1
+      const slot = visibleRows.flatMap((row) => row.categories || []).find((category) => category.category_id === r.key)?.color_slot ?? 1
       return { ...r, label: nameOf.get(r.key) ?? r.key, color: `var(--cat-${slot})` }
     })
-  }, [rows])
+  }, [visibleRows])
+
+  // v0.3 subquery stacked bars — one row per subquery, four segments per row.
+  // Uses the run's current subquery_set which run_report attaches to every row.
+  const bySubquery = useMemo(() => {
+    const set = rows[0]?.subquery_set
+    if (!set) return [] as { id: string; label: string; color_slot: number; counts: Record<SubqueryStance, number> }[]
+    return set.subqueries.map((sq) => {
+      const counts: Record<SubqueryStance, number> = { yes: 0, no: 0, mixed: 0, not_addressed: 0 }
+      for (const r of visibleRows) {
+        const a = r.subquery_answers?.[sq.id]
+        if (a) counts[a.stance] += 1
+      }
+      return { id: sq.id, label: sq.label, color_slot: sq.color_slot, counts }
+    })
+  }, [visibleRows, rows])
 
   const byYear = useMemo(() => {
+    // byYear tallies the UNFILTERED rows so users see the full histogram; the
+    // slider handles the filtering visually. Otherwise the year bar-chart
+    // would collapse into the visible slice and lose its context.
     const t = tally(rows, (r) => (r.year != null ? String(r.year) : null))
     return [...t.entries()]
       .sort((a, b) => Number(a[0]) - Number(b[0]))
       .map(([k, n]) => ({ key: k, label: k, n }))
   }, [rows])
 
-  const nEnriched = rows.filter((r) => r.openalex_id).length
-  const uniqueCountries = new Set<string>()
-  rows.forEach((r) => (r.author_countries ?? []).forEach((c) => uniqueCountries.add(c)))
+  const nEnriched = useMemo(() => visibleRows.filter((r) => r.openalex_id).length, [visibleRows])
+  const uniqueCountries = useMemo(() => {
+    const s = new Set<string>()
+    visibleRows.forEach((r) => (r.author_countries ?? []).forEach((c) => s.add(c)))
+    return s
+  }, [visibleRows])
+  const nFiltered = yearRange ? visibleRows.length : null
 
   // Silence unused-import: categoryClass is imported to keep the color mapping
   // module tree-connected so tsc doesn't drop it when we later use it in the
@@ -282,7 +368,7 @@ export default function StatsView({ initialRunId }: Props) {
       <div className="subtoolbar">
         <label className="run-picker">
           {t.report.runLabel}
-          <select value={runId ?? ''} onChange={(e) => setRunId(Number(e.target.value))}>
+          <select value={runId ?? ''} onChange={(e) => onRunIdChange(Number(e.target.value))}>
             {runs.map((r) => (
               <option key={r.id} value={r.id}>
                 #{r.id} · {r.query ? r.query.slice(0, 40) : t.report.noQuery} · {r.n_papers ?? '?'}p
@@ -290,13 +376,19 @@ export default function StatsView({ initialRunId }: Props) {
             ))}
           </select>
         </label>
+        <SubqueryFilterControl rows={rows} value={subqueryFilter} onChange={onSubqueryFilterChange} />
       </div>
+      {slider}
 
       <div className="stats-wrap">
         <div className="stats-summary">
           <div className="stats-tile">
             <span className="k">{t.stats.totalPapers}</span>
-            <span className="v">{rows.length}</span>
+            <span className="v">{rows.length}{nFiltered != null && (
+              <span className="ink-3" style={{ fontSize: 'var(--fs-sm)', marginLeft: 4 }}>
+                ({nFiltered} {t.stats.filtered})
+              </span>
+            )}</span>
           </div>
           <div className="stats-tile">
             <span className="k">{t.stats.withData}</span>
@@ -330,6 +422,7 @@ export default function StatsView({ initialRunId }: Props) {
             <BarChart data={byPublisher} title={t.stats.byPublisher} />
             <BarChart data={byCountry} title={t.stats.byCountry} />
             <BarChart data={byCategory} title={t.stats.byCategory} />
+            <SubqueryStack title={t.stats.bySubquery} rows={bySubquery} />
             <YearTrend data={byYear} title={t.stats.overTime} />
           </div>
         )}

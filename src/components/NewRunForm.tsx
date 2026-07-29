@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { api, type CategoryDef, type Estimate, type RunRequest } from '../api'
+import { api, type CategoryDef, type Estimate, type RunRequest, type SubqueryDef } from '../api'
 import { useT } from '../i18n'
 import { formatDuration } from '../time'
 import ProgressBar from './ProgressBar'
@@ -11,9 +11,10 @@ interface Props {
   onClose: () => void
   initialQuery?: string
   initialCategories?: CategoryDef[]
+  initialSubqueries?: SubqueryDef[]
 }
 
-export default function NewRunForm({ onDone, onClose, initialQuery, initialCategories = [] }: Props) {
+export default function NewRunForm({ onDone, onClose, initialQuery, initialCategories = [], initialSubqueries = [] }: Props) {
   const t = useT()
   const [req, setReq] = useState<RunRequest>({
     query: initialQuery ?? '', lang: 'auto', model: MODELS[0], mode: 'sync', categories: [],
@@ -24,6 +25,13 @@ export default function NewRunForm({ onDone, onClose, initialQuery, initialCateg
   const [log, setLog] = useState<string[]>([])
   const [runId, setRunId] = useState<number | null>(null)
   const [progress, setProgress] = useState<{ done: number; total: number | null; label: string } | null>(null)
+  const [startedAt, setStartedAt] = useState<number | null>(null)
+  const [elapsedSeconds, setElapsedSeconds] = useState(0)
+  const [lastPaper, setLastPaper] = useState<string | null>(null)
+  const [categories, setCategories] = useState<CategoryDef[]>(() =>
+    initialCategories.map((category, index) => ({ ...category, color_slot: category.color_slot ?? (index % 10) + 1 })),
+  )
+  const [subqueries, setSubqueries] = useState<SubqueryDef[]>(() => initialSubqueries.map((subquery) => ({ ...subquery })))
   const esRef = useRef<EventSource | null>(null)
 
   // Run-analysis language options (independent of the UI language).
@@ -36,6 +44,14 @@ export default function NewRunForm({ onDone, onClose, initialQuery, initialCateg
 
   useEffect(() => () => esRef.current?.close(), [])
 
+  useEffect(() => {
+    if (startedAt == null || busy !== 'running') return
+    const update = () => setElapsedSeconds(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)))
+    update()
+    const timer = window.setInterval(update, 1000)
+    return () => window.clearInterval(timer)
+  }, [busy, startedAt])
+
   // Esc closes the modal (except while a run is streaming).
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -45,11 +61,15 @@ export default function NewRunForm({ onDone, onClose, initialQuery, initialCateg
     return () => window.removeEventListener('keydown', onKey)
   }, [busy, onClose])
 
-  const patch = (p: Partial<RunRequest>) => setReq((r) => ({ ...r, ...p }))
+  const patch = (p: Partial<RunRequest>) => {
+    setEstimate(null)
+    setReq((r) => ({ ...r, ...p }))
+  }
   const payload = (): RunRequest => ({
     ...req,
     query: req.query?.trim() || null,
-    categories: initialCategories.filter((c) => (c.name || '').trim()),
+    categories: categories.filter((c) => (c.name || '').trim()),
+    subqueries: subqueries.filter((sq) => (sq.label || '').trim() && (sq.question || '').trim()),
   })
 
   async function doEstimate() {
@@ -69,6 +89,9 @@ export default function NewRunForm({ onDone, onClose, initialQuery, initialCateg
     setError(null)
     setLog([])
     setProgress(null)
+    setLastPaper(null)
+    setElapsedSeconds(0)
+    setStartedAt(Date.now())
     try {
       const { run_id, n_papers } = await api.startRun(payload())
       setRunId(run_id)
@@ -83,6 +106,7 @@ export default function NewRunForm({ onDone, onClose, initialQuery, initialCateg
       on('hello', () => add(`▶ run #${run_id} started`))
       on('analyzed', (d) => {
         add(`✓ ${d.paper}${d.reused ? ' (reused)' : ''}${d.trust != null ? ` — trust ${(d.trust * 100).toFixed(0)}%` : ''}`)
+        setLastPaper(d.paper)
         step()
       })
       on('extract_error', (d) => { add(`✗ extract ${d.paper}: ${d.error}`); step() })
@@ -96,6 +120,7 @@ export default function NewRunForm({ onDone, onClose, initialQuery, initialCateg
         es.close()
         setBusy('idle')
         setProgress(null)
+        setStartedAt(null)
         onDone(run_id)
       })
       on('error', (d) => {
@@ -103,6 +128,7 @@ export default function NewRunForm({ onDone, onClose, initialQuery, initialCateg
         es.close()
         setBusy('idle')
         setProgress(null)
+        setStartedAt(null)
         setError(d.error)
       })
       es.onerror = () => {
@@ -110,19 +136,21 @@ export default function NewRunForm({ onDone, onClose, initialQuery, initialCateg
         es.close()
         setBusy('idle')
         setProgress(null)
+        setStartedAt(null)
       }
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e))
       setBusy('idle')
+      setStartedAt(null)
     }
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div className="modal-backdrop" onClick={busy === 'running' ? undefined : onClose}>
       <div className="modal newrun" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <h2>{t.newRun.title}</h2>
-          <button className="modal-close" onClick={onClose}>✕</button>
+          <button className="modal-close" onClick={onClose} disabled={busy === 'running'}>✕</button>
         </div>
 
         <label className="field">
@@ -134,6 +162,56 @@ export default function NewRunForm({ onDone, onClose, initialQuery, initialCateg
             disabled={busy === 'running'}
           />
         </label>
+
+        <section className="newrun-taxonomy">
+          <div className="newrun-editor">
+            <div className="newrun-editor-head">
+              <div><h3>{t.categories.title}</h3><p>{t.categories.editHint}</p></div>
+              <button type="button" onClick={() => setCategories((items) => [
+                ...items,
+                { name: '', definition: '', color_slot: (items.length % 10) + 1 },
+              ])} disabled={busy === 'running'}>{t.categories.addRow}</button>
+            </div>
+            <div className="newrun-editor-rows">
+              {categories.map((category, index) => (
+                <div className="newrun-category-row" key={index}>
+                  <button
+                    type="button"
+                    className="category-slot-picker"
+                    style={{ background: `var(--cat-${category.color_slot ?? (index % 10) + 1})` }}
+                    aria-label={`${t.settings.categoryColor} ${index + 1}`}
+                    title={t.settings.categoryColor}
+                    onClick={() => {
+                      setCategories((items) => items.map((item, itemIndex) => itemIndex === index
+                        ? { ...item, color_slot: ((item.color_slot ?? index + 1) % 10) + 1 }
+                        : item))
+                    }}
+                    disabled={busy === 'running'}
+                  />
+                  <input value={category.name} onChange={(event) => setCategories((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item))} placeholder={t.categories.namePlaceholder} disabled={busy === 'running'} />
+                  <input value={category.definition ?? ''} onChange={(event) => setCategories((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, definition: event.target.value } : item))} placeholder={t.categories.defPlaceholder} disabled={busy === 'running'} />
+                  <button type="button" className="sq-remove" aria-label={t.categories.remove} onClick={() => setCategories((items) => items.filter((_, itemIndex) => itemIndex !== index))} disabled={busy === 'running'}>✕</button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="newrun-editor">
+            <div className="newrun-editor-head">
+              <div><h3>{t.subqueries.title}</h3><p>{t.subqueries.editHint}</p></div>
+              <button type="button" onClick={() => setSubqueries((items) => [...items, { id: null, label: '', question: '' }])} disabled={busy === 'running'}>+ {t.subqueries.addRow}</button>
+            </div>
+            <div className="newrun-editor-rows">
+              {subqueries.map((subquery, index) => (
+                <div className="newrun-subquery-row" key={index}>
+                  <input value={subquery.label} onChange={(event) => setSubqueries((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, label: event.target.value } : item))} placeholder={t.subqueries.labelPlaceholder} disabled={busy === 'running'} />
+                  <input value={subquery.question} onChange={(event) => setSubqueries((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, question: event.target.value } : item))} placeholder={t.subqueries.questionPlaceholder} disabled={busy === 'running'} />
+                  <button type="button" className="sq-remove" aria-label="Remove" onClick={() => setSubqueries((items) => items.filter((_, itemIndex) => itemIndex !== index))} disabled={busy === 'running'}>✕</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
 
         <div className="field-row">
           <label className="field">
@@ -173,21 +251,53 @@ export default function NewRunForm({ onDone, onClose, initialQuery, initialCateg
         </div>
 
         {estimate && (
-          <div className="estimate">
-            <b>{estimate.n_papers}</b> {t.newRun.papers} · ~{estimate.input_tokens.toLocaleString()} {t.newRun.tokensIn} +{' '}
-            {estimate.output_tokens_est.toLocaleString()} {t.newRun.tokensOut} ·{' '}
-            <b>~${estimate.usd_est.toFixed(2)}</b>
-            {req.mode === 'batch' && <> → <b>~${(estimate.usd_est / 2).toFixed(2)}</b> {t.newRun.batched}</>}
-            {' · '}
-            {estimate.duration_est_seconds == null
-              ? <><b>{formatDuration(null)}</b> {t.newRun.time} ({t.newRun.noTimeHistory})</>
-              : <><b>~{formatDuration(estimate.duration_est_seconds)}</b> {t.newRun.time}</>}
-          </div>
+          <section className="estimate" aria-label={t.newRun.estimate}>
+            <div className="estimate-heading">
+              <strong>{t.newRun.estimateReady}</strong>
+              <span>{estimate.model}</span>
+            </div>
+            <div className="estimate-grid">
+              <div className="estimate-item">
+                <span>{t.newRun.estimateScope}</span>
+                <strong>{estimate.n_papers} {t.newRun.papers}</strong>
+                <small>~{estimate.input_tokens.toLocaleString()} {t.newRun.tokensIn} · ~{estimate.output_tokens_est.toLocaleString()} {t.newRun.tokensOut}</small>
+              </div>
+              <div className="estimate-item estimate-cost">
+                <span>{t.newRun.estimateCost}</span>
+                {req.mode === 'batch' ? (
+                  <>
+                    <strong>~${(estimate.usd_est / 2).toFixed(2)}</strong>
+                    <small>{t.newRun.batchCost.replace('{amount}', `$${estimate.usd_est.toFixed(2)}`)}</small>
+                  </>
+                ) : <><strong>~${estimate.usd_est.toFixed(2)}</strong><small>{t.newRun.syncCost}</small></>}
+              </div>
+              <div className="estimate-item">
+                <span>{t.newRun.estimateTiming}</span>
+                {req.mode === 'batch' ? (
+                  <><strong>{t.newRun.batchTiming}</strong><small>{t.newRun.batchTimingDetail}</small></>
+                ) : estimate.duration_est_seconds == null ? (
+                  <><strong>{formatDuration(null)}</strong><small>{t.newRun.noTimeHistory}</small></>
+                ) : <><strong>~{formatDuration(estimate.duration_est_seconds)}</strong><small>{t.newRun.syncTiming}</small></>}
+              </div>
+            </div>
+          </section>
         )}
 
         {error && <div className="form-error">{error}</div>}
 
-        {progress && <ProgressBar value={progress.done} total={progress.total} label={progress.label} />}
+        {progress && (
+          <section className="run-progress" aria-live="polite">
+            <div className="run-progress-head">
+              <div>
+                <strong>{t.newRun.progressTitle}</strong>
+                <span>{req.mode === 'batch' && progress.label === t.newRun.batchWaiting ? t.newRun.batchProgressHelp : t.newRun.progressHelp}</span>
+              </div>
+              <time>{t.newRun.elapsed.replace('{time}', formatDuration(elapsedSeconds))}</time>
+            </div>
+            <ProgressBar value={progress.done} total={progress.total} label={progress.label} />
+            {lastPaper && <div className="run-progress-current">{t.newRun.currentPaper}: <strong>{lastPaper}</strong></div>}
+          </section>
+        )}
 
         {log.length > 0 && (
           <pre className="run-log">

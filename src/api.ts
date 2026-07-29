@@ -18,9 +18,14 @@ export type EvidenceStatus =
 export interface PaperCategoryAssignment {
   category_id: string
   name: string
+  color_slot: number
   confidence: number
   is_primary: boolean
   producer: 'analysis' | 'cheap' | 'deep' | 'human'
+  rationale?: string | null
+  evidence_page?: number | null
+  evidence_quote?: string | null
+  model?: string | null
 }
 
 /** One row of a run's report table (db.run_report — analyses joined to papers,
@@ -70,6 +75,18 @@ export interface ReportRow {
   target_countries: string[] | null
   // v0.2 categories on the run's current set
   categories: PaperCategoryAssignment[]
+  // v0.3 subquery answers on the run's current subquery set. Keyed by
+  // subquery_id; each value carries the paper's answer + confidence (as a
+  // 0..1 float — high=0.9, medium=0.6, low=0.3, mirroring the backend).
+  subquery_answers: Record<string, SubqueryAnswerCell>
+  subquery_set: { id: number; subqueries: SubqueryDefStored[] } | null
+}
+
+export type SubqueryStance = 'yes' | 'no' | 'mixed' | 'not_addressed'
+export interface SubqueryAnswerCell {
+  stance: SubqueryStance
+  finding: string | null
+  confidence: number
 }
 
 export interface Evidence {
@@ -108,6 +125,8 @@ export interface AnalysisBody {
   summary: Bullet[]
   metadata: Metadata
   relevance: Relevance
+  categories?: Array<{ category: string; rationale: string; confidence: Confidence; evidence: Evidence[] }>
+  subqueries?: Array<{ subquery_id: string; stance: SubqueryStance; finding: string | null; confidence: Confidence; evidence: Evidence[] }>
 }
 
 /** A verified evidence check (db.evidence). */
@@ -169,6 +188,14 @@ export interface Estimate {
 export interface CategoryDef {
   name: string
   definition?: string | null
+  /** 1-based slot in the user-editable category palette. */
+  color_slot?: number | null
+}
+
+export interface SubqueryDef {
+  id?: string | null
+  label: string
+  question: string
 }
 
 export interface RunRequest {
@@ -180,6 +207,8 @@ export interface RunRequest {
   // v0.2: user-defined categories for classification. Server persists them
   // to a new category_sets row for this run.
   categories?: CategoryDef[]
+  // v0.3: user-defined sub-research-questions. Baked into the Opus prompt.
+  subqueries?: SubqueryDef[]
 }
 
 export interface RerankScore {
@@ -267,6 +296,48 @@ export interface CategoriesPayload {
   proposals: CategoryProposal[]
 }
 
+// --- subqueries (v0.3) ------------------------------------------------------
+export interface SubqueryDefStored {
+  id: string
+  label: string
+  question: string | null
+  color_slot: number   // 1..10 → --cat-1..--cat-10 (reused palette)
+}
+export interface SubquerySet {
+  id: number
+  run_id: number
+  version: string
+  is_current: number
+  created_at: number
+  subqueries: SubqueryDefStored[]
+}
+export interface SubqueryCounts {
+  n_yes: number
+  n_no: number
+  n_mixed: number
+  n_not_addressed: number
+  n_high_conf: number
+}
+export interface SubqueriesPayload {
+  set: SubquerySet | null
+  counts: Record<string, SubqueryCounts>
+}
+/** One stored row from paper_subquery_answers, for a single paper detail view. */
+export interface PaperSubqueryAnswer {
+  paper_key: string
+  set_id: number
+  subquery_id: string
+  label?: string
+  stance: SubqueryStance
+  finding: string | null
+  confidence: number
+  evidence_page: number | null
+  evidence_quote: string | null
+  producer: string
+  model: string | null
+  created_at?: number
+}
+
 // --- citation graph (Phase 2 + v0.2 Step 8a) --------------------------------
 export interface GraphNode {
   key: string
@@ -280,6 +351,8 @@ export interface GraphNode {
   external_refs: number
   status: string | null
   enrich_source?: 'openalex' | 'crossref' | null
+  categories: PaperCategoryAssignment[]
+  stance_label?: StanceLabel | null
 }
 export interface GraphEdge {
   source: string
@@ -313,6 +386,7 @@ export interface ConceptNode {
   stance: StanceLabel | null
   polarity: number | null
   relevance: number | null
+  categories: PaperCategoryAssignment[]
 }
 export interface ConceptEdge {
   source: string
@@ -414,6 +488,8 @@ export const api = {
     const q = keys && keys.length ? `?keys=${encodeURIComponent(keys.join(','))}` : ''
     return `${API_BASE}/api/runs/${runId}/export.${fmt}${q}`
   },
+  runBundleUrl: (runId: number) => `${API_BASE}/api/runs/${runId}/export.run.json`,
+  importRunBundle: (bundle: unknown) => post<{ run_id: number }>('/runs/import', bundle),
   eventsUrl: (runId: number) => `${API_BASE}/api/runs/${runId}/events`,
 
   // settings + upload (Home)
@@ -489,6 +565,16 @@ export const api = {
     ),
   paperCategories: (runId: number, key: string) =>
     get<PaperCategoryAssignment[]>(`/runs/${runId}/papers/${encodeURIComponent(key)}/categories`),
+
+  // subqueries (v0.3) — same shape as the categories endpoints, minus
+  // proposals + classify (subqueries are Opus-inline only in this release).
+  subqueries: (runId: number) => get<SubqueriesPayload>(`/runs/${runId}/subqueries`),
+  saveSubqueries: (runId: number, subqueries: SubqueryDef[]) =>
+    put<{ set_id: number; version: string; subqueries: SubqueryDefStored[] }>(
+      `/runs/${runId}/subqueries`, { subqueries },
+    ),
+  paperSubqueries: (runId: number, key: string) =>
+    get<PaperSubqueryAnswer[]>(`/runs/${runId}/papers/${encodeURIComponent(key)}/subqueries`),
 }
 
 async function put<T>(path: string, body: unknown): Promise<T> {

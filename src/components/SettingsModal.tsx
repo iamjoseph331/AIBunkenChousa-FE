@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { api, type Settings } from '../api'
+import { api, type Run, type Settings } from '../api'
 import type { Lang } from '../i18n'
 import { useT } from '../i18n'
 import { DEFAULT_WEIGHTS, type ImportanceWeights } from '../importance'
@@ -22,6 +22,10 @@ interface Props {
   onSaveClaudeKey: (value: string) => void
   weights: ImportanceWeights
   setWeights: (weights: ImportanceWeights) => void
+  categoryPalette: string[]
+  setCategoryPalette: (palette: string[]) => void
+  currentRunId: number | null
+  onRunImported: (runId: number) => void
 }
 
 const SECTIONS: Section[] = ['language', 'api', 'appearance', 'ranking', 'corpus']
@@ -34,6 +38,10 @@ export default function SettingsModal(props: Props) {
   const [pathDraft, setPathDraft] = useState('')
   const [saving, setSaving] = useState(false)
   const [folderError, setFolderError] = useState<string | null>(null)
+  const [runs, setRuns] = useState<Run[]>([])
+  const [shareRunId, setShareRunId] = useState<number | null>(props.currentRunId)
+  const [importing, setImporting] = useState(false)
+  const [runTransferError, setRunTransferError] = useState<string | null>(null)
 
   const loadSettings = useCallback(async () => {
     try {
@@ -46,6 +54,12 @@ export default function SettingsModal(props: Props) {
   }, [])
 
   useEffect(() => { loadSettings() }, [loadSettings])
+  useEffect(() => {
+    api.runs().then((items) => {
+      setRuns(items)
+      setShareRunId((current) => current ?? props.currentRunId ?? items[0]?.id ?? null)
+    }, (error) => setRunTransferError(String(error instanceof Error ? error.message : error)))
+  }, [props.currentRunId])
 
   async function saveFolder() {
     setSaving(true)
@@ -57,6 +71,22 @@ export default function SettingsModal(props: Props) {
       setFolderError(String(error instanceof Error ? error.message : error))
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function importRun(file: File | undefined) {
+    if (!file) return
+    setImporting(true)
+    setRunTransferError(null)
+    try {
+      const bundle = JSON.parse(await file.text())
+      const result = await api.importRunBundle(bundle)
+      setShareRunId(result.run_id)
+      props.onRunImported(result.run_id)
+    } catch (error) {
+      setRunTransferError(String(error instanceof Error ? error.message : error))
+    } finally {
+      setImporting(false)
     }
   }
 
@@ -99,6 +129,22 @@ export default function SettingsModal(props: Props) {
               <label className="field"><span>{t.settings.colorTheme}</span><select value={props.theme} onChange={(event) => props.setTheme(event.target.value)}><option value="slate">Slate</option><option value="graphite">Graphite</option><option value="sepia">Sepia</option><option value="nord">Nord</option></select></label>
               <span className="settings-label">{t.settings.displayMode}</span><div className="settings-choice-row"><button className={props.mode === 'light' ? 'primary' : ''} onClick={() => props.setMode('light')}>☀ Light</button><button className={props.mode === 'dark' ? 'primary' : ''} onClick={() => props.setMode('dark')}>☾ Dark</button></div>
               <span className="settings-label">{t.settings.density}</span><div className="settings-choice-row"><button className={props.density === 'comfortable' ? 'primary' : ''} onClick={() => props.setDensity('comfortable')}>{t.controls.comfortable}</button><button className={props.density === 'compact' ? 'primary' : ''} onClick={() => props.setDensity('compact')}>{t.controls.compact}</button></div>
+              <span className="settings-label">{t.settings.categoryPalette}</span>
+              <p className="home-help settings-palette-help">{t.settings.categoryPaletteHelp}</p>
+              <div className="settings-palette">
+                {props.categoryPalette.map((color, index) => (
+                  <label key={index} title={`${t.settings.categoryColor} ${index + 1}`}>
+                    <input
+                      type="color"
+                      value={color}
+                      onChange={(event) => props.setCategoryPalette(
+                        props.categoryPalette.map((value, itemIndex) => itemIndex === index ? event.target.value : value),
+                      )}
+                    />
+                    <span>{index + 1}</span>
+                  </label>
+                ))}
+              </div>
             </div>
           )}
 
@@ -107,7 +153,38 @@ export default function SettingsModal(props: Props) {
           )}
 
           {section === 'corpus' && (
-            <div className="settings-section"><p className="home-help">{t.settings.folderHelp}</p><div className="folder-row"><input className="folder-input" type="text" value={pathDraft} onChange={(event) => setPathDraft(event.target.value)} placeholder="/Users/you/papers" spellCheck={false} /><button className="primary" onClick={saveFolder} disabled={saving || !pathDraft.trim()}>{saving ? t.settings.saving : t.settings.saveFolder}</button></div>{folderError && <div className="app-error home-inline-error">{folderError}</div>}{settings && <div className="folder-status">{settings.exists ? <span><b>{settings.n_pdfs}</b> {t.settings.pdfsFound} · <code>{settings.papers_dir}</code></span> : <span className="folder-missing">{t.settings.missing}: <code>{settings.papers_dir}</code></span>}</div>}</div>
+            <div className="settings-section">
+              <p className="home-help">{t.settings.folderHelp}</p>
+              <div className="folder-row"><input className="folder-input" type="text" value={pathDraft} onChange={(event) => setPathDraft(event.target.value)} placeholder="/Users/you/papers" spellCheck={false} /><button className="primary" onClick={saveFolder} disabled={saving || !pathDraft.trim()}>{saving ? t.settings.saving : t.settings.saveFolder}</button></div>
+              {folderError && <div className="app-error home-inline-error">{folderError}</div>}
+              {settings && <div className="folder-status">{settings.exists ? <span><b>{settings.n_pdfs}</b> {t.settings.pdfsFound} · <code>{settings.papers_dir}</code></span> : <span className="folder-missing">{t.settings.missing}: <code>{settings.papers_dir}</code></span>}</div>}
+
+              <div className="settings-divider" />
+              <span className="settings-label">{t.settings.runTransfer}</span>
+              <p className="home-help">{t.settings.runTransferHelp}</p>
+              {runs.length > 0 && (
+                <div className="settings-run-share">
+                  <select value={shareRunId ?? ''} onChange={(event) => setShareRunId(Number(event.target.value))}>
+                    {runs.map((run) => <option key={run.id} value={run.id}>#{run.id} · {run.query || t.report.noQuery}</option>)}
+                  </select>
+                  {shareRunId != null && <a className="button-link" href={api.runBundleUrl(shareRunId)} download>{t.report.exportRun}</a>}
+                </div>
+              )}
+              <label className={`file-picker${importing ? ' disabled' : ''}`}>
+                <input
+                  type="file"
+                  accept="application/json,.json"
+                  disabled={importing}
+                  onChange={(event) => {
+                    importRun(event.target.files?.[0])
+                    event.target.value = ''
+                  }}
+                />
+                <span className="file-picker-button">{importing ? t.report.importingRun : t.settings.chooseRunFile}</span>
+                <span className="file-picker-hint">{t.settings.runFileHint}</span>
+              </label>
+              {runTransferError && <div className="app-error home-inline-error">{runTransferError}</div>}
+            </div>
           )}
         </div>
       </section>

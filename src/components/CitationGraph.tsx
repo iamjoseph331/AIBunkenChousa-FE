@@ -4,6 +4,7 @@ import { computeLayout, type Pos } from './graphLayout'
 import { useT } from '../i18n'
 import ProgressBar from './ProgressBar'
 import PdfViewer from './PdfViewer'
+import { CategoryPie } from './bits'
 
 const VW = 960
 const VH = 620
@@ -272,7 +273,7 @@ export default function CitationGraph() {
                     onPointerDown={(e) => onPointerDown(n.key, e)}
                     onClick={(e) => { e.stopPropagation(); setSelected(n.key) }}
                   >
-                    <circle r={r} className="cite-circle" />
+                    <CategoryPie categories={n.categories} radius={r} stance={n.stance_label} selected={isSel} />
                     <text y={r + 13} className="cite-label">
                       {(n.title.length > 26 ? n.title.slice(0, 25) + '…' : n.title)}
                     </text>

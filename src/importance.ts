@@ -4,6 +4,7 @@
 // OpenAlex enrichment join (Step 1b), so this file has no network dependency.
 
 import type { ReportRow } from './api'
+import type { YearBounds } from './time'
 
 export interface ImportanceWeights {
   citations: number    // 0..1
@@ -64,14 +65,19 @@ export function scoreRows(
   rows: ReportRow[],
   weights: ImportanceWeights,
   currentYear: number = new Date().getFullYear(),
+  // v0.3: when a time slider filters the visible rows, the recency term must
+  // stay pegged to the UNFILTERED corpus bounds — otherwise the ranking
+  // jitters as the slider moves. Callers pass their unfiltered yearBounds()
+  // here; when null, we fall back to the local rows' bounds (old behaviour).
+  bounds: YearBounds | null = null,
 ): Map<string, Scored> {
   const rates = rows.map(r => citationRate(r, currentYear))
   const maxRate = Math.max(0, ...rates.filter((v): v is number => v != null))
   const denomCit = maxRate > 0 ? Math.log1p(maxRate) : 1
 
   const years = rows.map(r => r.year).filter((v): v is number => v != null)
-  const minYear = years.length ? Math.min(...years) : currentYear
-  const maxYear = years.length ? Math.max(...years) : currentYear
+  const minYear = bounds?.min ?? (years.length ? Math.min(...years) : currentYear)
+  const maxYear = bounds?.max ?? (years.length ? Math.max(...years) : currentYear)
   const yearSpan = Math.max(1, maxYear - minYear)
 
   const out = new Map<string, Scored>()
