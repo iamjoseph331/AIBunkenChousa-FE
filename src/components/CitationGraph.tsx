@@ -5,6 +5,7 @@ import { useT } from '../i18n'
 import ProgressBar from './ProgressBar'
 import PdfViewer from './PdfViewer'
 import { CategoryPie } from './bits'
+import type { ConceptNodeColorMode } from '../categoryColor'
 
 const VW = 960
 const VH = 620
@@ -13,7 +14,7 @@ function radius(n: GraphNode): number {
   return 8 + Math.min(n.in_degree, 8) * 3.5
 }
 
-export default function CitationGraph() {
+export default function CitationGraph({ nodeColorMode }: { nodeColorMode: ConceptNodeColorMode }) {
   const t = useT()
   const [graph, setGraph] = useState<Graph | null>(null)
   const [grobid, setGrobid] = useState<{ alive: boolean; url: string } | null>(null)
@@ -232,7 +233,10 @@ export default function CitationGraph() {
               preserveAspectRatio="xMidYMid meet"
               onPointerMove={onPointerMove}
               onPointerUp={onPointerUp}
-              onClick={() => setSelected(null)}
+              onClickCapture={(event) => {
+                const key = (event.target as Element).closest('[data-node-key]')?.getAttribute('data-node-key')
+                setSelected(key ?? null)
+              }}
             >
               <defs>
                 <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -270,10 +274,17 @@ export default function CitationGraph() {
                     key={n.key}
                     transform={`translate(${p.x},${p.y})`}
                     className={`cite-node${isSel ? ' sel' : ''}${dim ? ' dim' : ''}${n.in_degree > 0 ? ' cited' : ''}`}
-                    onPointerDown={(e) => onPointerDown(n.key, e)}
-                    onClick={(e) => { e.stopPropagation(); setSelected(n.key) }}
                   >
-                    <CategoryPie categories={n.categories} radius={r} stance={n.stance_label} selected={isSel} />
+                    <CategoryPie categories={n.categories} radius={r} stance={n.stance_label} selected={isSel} mode={nodeColorMode} />
+                    <circle
+                      r={r + 7}
+                      className="graph-node-hit"
+                      data-node-key={n.key}
+                      fill="transparent"
+                      pointerEvents="all"
+                      onPointerDown={(e) => onPointerDown(n.key, e)}
+                      onMouseDown={(e) => { e.stopPropagation(); setSelected(n.key) }}
+                    />
                     <text y={r + 13} className="cite-label">
                       {(n.title.length > 26 ? n.title.slice(0, 25) + '…' : n.title)}
                     </text>

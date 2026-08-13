@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
-import { api, type Run, type Settings } from '../api'
+import { api, type Run, type Settings, type UnresolvedMetadataPaper } from '../api'
 import type { Lang } from '../i18n'
 import { useT } from '../i18n'
 import { DEFAULT_WEIGHTS, type ImportanceWeights } from '../importance'
+import type { ConceptNodeColorMode } from '../categoryColor'
 
-type Section = 'language' | 'api' | 'appearance' | 'ranking' | 'corpus'
+type Section = 'language' | 'api' | 'appearance' | 'ranking' | 'corpus' | 'metadata'
 type Mode = 'light' | 'dark'
 type Density = 'compact' | 'comfortable'
 
@@ -24,16 +25,21 @@ interface Props {
   setWeights: (weights: ImportanceWeights) => void
   categoryPalette: string[]
   setCategoryPalette: (palette: string[]) => void
+  conceptNodeColorMode: ConceptNodeColorMode
+  setConceptNodeColorMode: (mode: ConceptNodeColorMode) => void
   currentRunId: number | null
   onRunImported: (runId: number) => void
 }
 
-const SECTIONS: Section[] = ['language', 'api', 'appearance', 'ranking', 'corpus']
+const SECTIONS: Section[] = ['language', 'api', 'appearance', 'ranking', 'corpus', 'metadata']
 
 export default function SettingsModal(props: Props) {
   const t = useT()
   const [section, setSection] = useState<Section>('language')
   const [keyDraft, setKeyDraft] = useState('')
+  const [openAlexKeyDraft, setOpenAlexKeyDraft] = useState('')
+  const [savingOpenAlexKey, setSavingOpenAlexKey] = useState(false)
+  const [openAlexKeyMessage, setOpenAlexKeyMessage] = useState<string | null>(null)
   const [settings, setSettings] = useState<Settings | null>(null)
   const [pathDraft, setPathDraft] = useState('')
   const [saving, setSaving] = useState(false)
@@ -42,6 +48,12 @@ export default function SettingsModal(props: Props) {
   const [shareRunId, setShareRunId] = useState<number | null>(props.currentRunId)
   const [importing, setImporting] = useState(false)
   const [runTransferError, setRunTransferError] = useState<string | null>(null)
+  const [refreshingMetadata, setRefreshingMetadata] = useState(false)
+  const [metadataProgress, setMetadataProgress] = useState<string | null>(null)
+  const [unresolvedPapers, setUnresolvedPapers] = useState<UnresolvedMetadataPaper[]>([])
+  const [titleDrafts, setTitleDrafts] = useState<Record<string, string>>({})
+  const [savingTitle, setSavingTitle] = useState<string | null>(null)
+  const [metadataRepairError, setMetadataRepairError] = useState<string | null>(null)
 
   const loadSettings = useCallback(async () => {
     try {
@@ -60,6 +72,13 @@ export default function SettingsModal(props: Props) {
       setShareRunId((current) => current ?? props.currentRunId ?? items[0]?.id ?? null)
     }, (error) => setRunTransferError(String(error instanceof Error ? error.message : error)))
   }, [props.currentRunId])
+  useEffect(() => {
+    if (section !== 'metadata') return
+    api.unresolvedMetadata().then(
+      (data) => setUnresolvedPapers(data.papers),
+      (error) => setMetadataRepairError(String(error instanceof Error ? error.message : error)),
+    )
+  }, [section])
 
   async function saveFolder() {
     setSaving(true)
@@ -71,6 +90,21 @@ export default function SettingsModal(props: Props) {
       setFolderError(String(error instanceof Error ? error.message : error))
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function saveOpenAlexKey() {
+    setSavingOpenAlexKey(true)
+    setOpenAlexKeyMessage(null)
+    try {
+      const data = await api.saveOpenAlexKey(openAlexKeyDraft)
+      setSettings(data)
+      setOpenAlexKeyDraft('')
+      setOpenAlexKeyMessage(t.settings.openAlexApiKeySaved)
+    } catch (error) {
+      setOpenAlexKeyMessage(String(error instanceof Error ? error.message : error))
+    } finally {
+      setSavingOpenAlexKey(false)
     }
   }
 
@@ -90,12 +124,61 @@ export default function SettingsModal(props: Props) {
     }
   }
 
+  async function refreshOpenAlexMetadata() {
+    setRefreshingMetadata(true)
+    setMetadataProgress(null)
+    const es = new EventSource(api.enrichEventsUrl())
+    const on = (name: string, fn: (data: any) => void) =>
+      es.addEventListener(name, (event) => fn(JSON.parse((event as MessageEvent).data)))
+    on('start', (data) => setMetadataProgress(t.settings.metadataRefreshing.replace('{count}', String(data.total ?? 0))))
+    on('fetched', () => setMetadataProgress(t.settings.metadataRefreshing.replace('{count}', '…')))
+    on('done', (data) => {
+      setMetadataProgress(t.settings.metadataComplete.replace('{count}', String(data.hits ?? 0)))
+      setRefreshingMetadata(false)
+      es.close()
+    })
+    on('error', (data) => {
+      setMetadataProgress(String(data.error ?? t.settings.metadataFailed))
+      setRefreshingMetadata(false)
+      es.close()
+    })
+    es.onerror = () => {
+      setMetadataProgress(t.settings.metadataFailed)
+      setRefreshingMetadata(false)
+      es.close()
+    }
+    try {
+      const papers = await api.papers()
+      await api.buildEnrich(papers.map((paper) => paper.key))
+    } catch (error) {
+      setMetadataProgress(String(error instanceof Error ? error.message : error))
+      setRefreshingMetadata(false)
+      es.close()
+    }
+  }
+
+  async function submitManualTitle(paper: UnresolvedMetadataPaper) {
+    const title = (titleDrafts[paper.key] ?? '').trim()
+    if (!title) return
+    setSavingTitle(paper.key)
+    setMetadataRepairError(null)
+    try {
+      await api.setManualMetadataTitle(paper.key, title)
+      setUnresolvedPapers((items) => items.filter((item) => item.key !== paper.key))
+    } catch (error) {
+      setMetadataRepairError(String(error instanceof Error ? error.message : error))
+    } finally {
+      setSavingTitle(null)
+    }
+  }
+
   const labels: Record<Section, string> = {
     language: t.settings.language,
     api: t.settings.api,
     appearance: t.settings.appearance,
     ranking: t.settings.ranking,
     corpus: t.settings.corpus,
+    metadata: t.settings.metadataRepair,
   }
 
   return (
@@ -118,10 +201,18 @@ export default function SettingsModal(props: Props) {
           )}
 
           {section === 'api' && (
-            <form className="settings-section settings-api" onSubmit={(event) => { event.preventDefault(); props.onSaveClaudeKey(keyDraft); setKeyDraft('') }}>
-              <label className="field"><span>{t.controls.claudeApiKey}</span><input type="password" value={keyDraft} onChange={(event) => setKeyDraft(event.target.value)} placeholder={props.claudeKeySaved ? t.controls.claudeApiKeySavedPlaceholder : t.controls.claudeApiKeyPlaceholder} spellCheck={false} autoComplete="off" /></label>
-              <button className="primary" type="submit">{t.controls.saveClaudeApiKey}</button>
-            </form>
+            <div className="settings-section settings-api">
+              <form onSubmit={(event) => { event.preventDefault(); props.onSaveClaudeKey(keyDraft); setKeyDraft('') }}>
+                <label className="field"><span>{t.controls.claudeApiKey}</span><input type="password" value={keyDraft} onChange={(event) => setKeyDraft(event.target.value)} placeholder={props.claudeKeySaved ? t.controls.claudeApiKeySavedPlaceholder : t.controls.claudeApiKeyPlaceholder} spellCheck={false} autoComplete="off" /></label>
+                <button className="primary" type="submit">{t.controls.saveClaudeApiKey}</button>
+              </form>
+              <form onSubmit={(event) => { event.preventDefault(); void saveOpenAlexKey() }}>
+                <label className="field"><span>{t.settings.openAlexApiKey}</span><input type="password" value={openAlexKeyDraft} onChange={(event) => setOpenAlexKeyDraft(event.target.value)} placeholder={settings?.openalex_api_key_saved ? t.settings.openAlexApiKeySavedPlaceholder : t.settings.openAlexApiKeyPlaceholder} spellCheck={false} autoComplete="off" /></label>
+                <p className="home-help">{t.settings.openAlexApiKeyHelp}</p>
+                <button className="primary" type="submit" disabled={savingOpenAlexKey}>{savingOpenAlexKey ? t.settings.saving : t.settings.saveOpenAlexApiKey}</button>
+                {openAlexKeyMessage && <p className="folder-status">{openAlexKeyMessage}</p>}
+              </form>
+            </div>
           )}
 
           {section === 'appearance' && (
@@ -145,6 +236,12 @@ export default function SettingsModal(props: Props) {
                   </label>
                 ))}
               </div>
+              <span className="settings-label">{t.settings.conceptNodeColors}</span>
+              <p className="home-help settings-palette-help">{t.settings.conceptNodeColorsHelp}</p>
+              <div className="settings-choice-row">
+                <button className={props.conceptNodeColorMode === 'primary' ? 'primary' : ''} onClick={() => props.setConceptNodeColorMode('primary')}>{t.settings.primaryCategory}</button>
+                <button className={props.conceptNodeColorMode === 'pie' ? 'primary' : ''} onClick={() => props.setConceptNodeColorMode('pie')}>{t.settings.categoryPie}</button>
+              </div>
             </div>
           )}
 
@@ -158,6 +255,14 @@ export default function SettingsModal(props: Props) {
               <div className="folder-row"><input className="folder-input" type="text" value={pathDraft} onChange={(event) => setPathDraft(event.target.value)} placeholder="/Users/you/papers" spellCheck={false} /><button className="primary" onClick={saveFolder} disabled={saving || !pathDraft.trim()}>{saving ? t.settings.saving : t.settings.saveFolder}</button></div>
               {folderError && <div className="app-error home-inline-error">{folderError}</div>}
               {settings && <div className="folder-status">{settings.exists ? <span><b>{settings.n_pdfs}</b> {t.settings.pdfsFound} · <code>{settings.papers_dir}</code></span> : <span className="folder-missing">{t.settings.missing}: <code>{settings.papers_dir}</code></span>}</div>}
+
+              <div className="settings-divider" />
+              <span className="settings-label">{t.settings.metadata}</span>
+              <p className="home-help">{t.settings.metadataHelp}</p>
+              <button onClick={refreshOpenAlexMetadata} disabled={refreshingMetadata}>
+                {refreshingMetadata ? t.settings.metadataRefreshing.replace('{count}', '…') : t.settings.refreshMetadata}
+              </button>
+              {metadataProgress && <div className="folder-status">{metadataProgress}</div>}
 
               <div className="settings-divider" />
               <span className="settings-label">{t.settings.runTransfer}</span>
@@ -184,6 +289,30 @@ export default function SettingsModal(props: Props) {
                 <span className="file-picker-hint">{t.settings.runFileHint}</span>
               </label>
               {runTransferError && <div className="app-error home-inline-error">{runTransferError}</div>}
+            </div>
+          )}
+
+          {section === 'metadata' && (
+            <div className="settings-section">
+              <p className="home-help">{t.settings.metadataRepairHelp}</p>
+              {metadataRepairError && <div className="app-error home-inline-error">{metadataRepairError}</div>}
+              {unresolvedPapers.length === 0 ? <p className="folder-status">{t.settings.metadataRepairEmpty}</p> : (
+                <div className="metadata-repair-list">
+                  {unresolvedPapers.map((paper) => (
+                    <div key={paper.key} className="metadata-repair-row">
+                      <code title={paper.key}>{paper.filename}</code>
+                      <input
+                        value={titleDrafts[paper.key] ?? ''}
+                        onChange={(event) => setTitleDrafts((drafts) => ({ ...drafts, [paper.key]: event.target.value }))}
+                        placeholder={t.settings.metadataTitlePlaceholder}
+                      />
+                      <button className="primary" onClick={() => submitManualTitle(paper)} disabled={savingTitle === paper.key || !(titleDrafts[paper.key] ?? '').trim()}>
+                        {savingTitle === paper.key ? t.settings.metadataSubmitting : t.settings.metadataSubmit}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

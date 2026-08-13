@@ -140,6 +140,7 @@ export interface EvidenceCheck {
 }
 
 export interface AnalysisDetail extends ReportRow {
+  extracted_title: string | null
   analysis: AnalysisBody
   evidence: EvidenceCheck[]
   low_quality_pages: number[]
@@ -227,6 +228,7 @@ export interface Settings {
   papers_dir: string
   exists: boolean
   n_pdfs: number
+  openalex_api_key_saved: boolean
 }
 
 // --- OpenAlex enrichment (v0.2 Step 1) --------------------------------------
@@ -263,6 +265,10 @@ export interface EnrichRow {
   status: 'ok' | 'missing' | 'error'
   error: string | null
   fetched_at: number
+}
+export interface UnresolvedMetadataPaper {
+  key: string
+  filename: string
 }
 
 // --- categories (v0.2 Step 2) -----------------------------------------------
@@ -495,6 +501,7 @@ export const api = {
   // settings + upload (Home)
   settings: () => get<Settings>('/settings'),
   saveSettings: (papers_dir: string) => post<Settings>('/settings', { papers_dir }),
+  saveOpenAlexKey: (api_key: string) => put<Settings>('/settings/openalex-key', { api_key }),
   uploadPdf: async (file: File): Promise<{ filename: string; saved: boolean; reason?: string }> => {
     const res = await fetch(`${API_BASE}/api/papers/upload?filename=${encodeURIComponent(file.name)}`, {
       method: 'POST',
@@ -541,6 +548,11 @@ export const api = {
   },
   enrichEventsUrl: () => `${API_BASE}/api/enrich/events`,
   paperEnrich: (key: string) => get<EnrichRow>(`/papers/${encodeURIComponent(key)}/enrich`),
+  unresolvedMetadata: () => get<{ papers: UnresolvedMetadataPaper[] }>('/metadata/unresolved'),
+  setManualMetadataTitle: (key: string, title: string) =>
+    put<{ status: string; summary: { hits: number; missing: number; errors: number } }>(
+      `/metadata/papers/${encodeURIComponent(key)}/title`, { title },
+    ),
 
   // categories (v0.2 Step 2)
   categories: (runId: number) => get<CategoriesPayload>(`/runs/${runId}/categories`),
@@ -575,6 +587,44 @@ export const api = {
     ),
   paperSubqueries: (runId: number, key: string) =>
     get<PaperSubqueryAnswer[]>(`/runs/${runId}/papers/${encodeURIComponent(key)}/subqueries`),
+
+  /** Stream a chat reply grounded in a run's report + stats snapshot. The
+   * backend returns text/plain chunks; the callback fires per chunk so the UI
+   * can render tokens as they arrive. */
+  chat: async (
+    runId: number,
+    messages: { role: 'user' | 'assistant'; content: string }[],
+    onChunk: (delta: string) => void,
+    opts?: { signal?: AbortSignal; model?: string },
+  ): Promise<void> => {
+    requireClaudeApiKey()
+    const res = await fetch(`${API_BASE}/api/runs/${runId}/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Claude-API-Key': claudeApiKey,
+      },
+      body: JSON.stringify({ messages, model: opts?.model }),
+      signal: opts?.signal,
+    })
+    if (!res.ok || !res.body) {
+      let detail = `${res.status} ${res.statusText}`
+      try {
+        const j = await res.json()
+        if (j.detail) detail = typeof j.detail === 'string' ? j.detail : JSON.stringify(j.detail)
+      } catch { /* keep status text */ }
+      throw new Error(detail)
+    }
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (value) onChunk(decoder.decode(value, { stream: true }))
+    }
+    const tail = decoder.decode()
+    if (tail) onChunk(tail)
+  },
 }
 
 async function put<T>(path: string, body: unknown): Promise<T> {

@@ -24,6 +24,10 @@ export function computeLayout(
     ? Array.from(new Set(nodes.map(n => groups[n.key]).filter(g => g != null))) as string[]
     : []
   const groupSlot = new Map<string, number>(groupIds.map((g, i) => [g, i]))
+  const groupAnchors = new Map(groupIds.map((g, i) => {
+    const angle = (i / Math.max(1, groupIds.length)) * Math.PI * 2
+    return [g, { x: vw / 2 + Math.cos(angle) * vw * 0.25, y: vh / 2 + Math.sin(angle) * vh * 0.25 }]
+  }))
   const pos: Pos[] = nodes.map((n, i) => {
     const g = groups?.[n.key]
     let baseAngle: number
@@ -91,8 +95,15 @@ export function computeLayout(
       if (centroids) {
         const g = groups![nodes[i].key]
         if (g && centroids[g]) {
-          disp[i].x += (centroids[g].x - pos[i].x) * 0.035
-          disp[i].y += (centroids[g].y - pos[i].y) * 0.035
+          // Keep each category compact, while anchors stop linked nodes from
+          // collapsing every category into one indistinguishable centre.
+          disp[i].x += (centroids[g].x - pos[i].x) * 0.075
+          disp[i].y += (centroids[g].y - pos[i].y) * 0.075
+          const anchor = groupAnchors.get(g)
+          if (anchor) {
+            disp[i].x += (anchor.x - pos[i].x) * 0.035
+            disp[i].y += (anchor.y - pos[i].y) * 0.035
+          }
         }
       }
       const dl = Math.hypot(disp[i].x, disp[i].y) || 0.01

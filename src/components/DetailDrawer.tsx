@@ -65,9 +65,9 @@ export default function DetailDrawer({ analysisId, paperKey, runId, onClose, onO
     <aside className="drawer">
       <div className="drawer-head">
         <div className="drawer-title">
-          <h2>{detail?.filename ?? paperKey}</h2>
+          <h2>{detail?.extracted_title || detail?.filename || paperKey}</h2>
           <div className="drawer-sub">
-            {paperKey}
+            {detail?.filename ?? paperKey}
             {detail?.n_pages != null ? ` · ${detail.n_pages} pp` : ''}
           </div>
         </div>

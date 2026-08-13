@@ -5,6 +5,7 @@ import CitationGraph from './components/CitationGraph'
 import ConceptGraph from './components/ConceptGraph'
 import GeoView from './components/GeoView'
 import StatsView from './components/StatsView'
+import ChatView from './components/ChatView'
 import SettingsModal from './components/SettingsModal'
 import TimelineSlider from './components/TimelineSlider'
 import { useLang, useT } from './i18n'
@@ -12,12 +13,12 @@ import { api, hasClaudeApiKey, setClaudeApiKey, type ReportRow } from './api'
 import { loadWeights, saveWeights, type ImportanceWeights } from './importance'
 import { yearBounds, type YearRange } from './time'
 import type { SubqueryFilter } from './subqueryFilter'
-import { loadCategoryPalette, saveCategoryPalette } from './categoryColor'
+import { loadCategoryPalette, saveCategoryPalette, type ConceptNodeColorMode } from './categoryColor'
 import './App.css'
 
-type Tab = 'home' | 'report' | 'citations' | 'concepts' | 'geo' | 'stats'
+type Tab = 'home' | 'report' | 'citations' | 'concepts' | 'geo' | 'stats' | 'chat'
 
-const TAB_IDS: Tab[] = ['home', 'report', 'geo', 'stats', 'citations', 'concepts']
+const TAB_IDS: Tab[] = ['home', 'report', 'geo', 'stats', 'citations', 'concepts', 'chat']
 
 // Which tabs consume the shared year slider — Home and Citations don't (Home
 // has no run scope, Citations is corpus-wide and un-scored by year).
@@ -45,6 +46,9 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [weights, setWeights] = useState<ImportanceWeights>(() => loadWeights())
   const [categoryPalette, setCategoryPalette] = useState<string[]>(() => loadCategoryPalette())
+  const [conceptNodeColorMode, setConceptNodeColorMode] = useState<ConceptNodeColorMode>(
+    () => localStorage.getItem('aibc-concept-node-color-mode') === 'pie' ? 'pie' : 'primary',
+  )
   const [toast, setToast] = useState<string | null>(null)
   // v0.3 shared run id — one authoritative selection across Report/Geo/Stats/
   // Concepts; picking a run in one view updates the others when they mount.
@@ -79,6 +83,7 @@ export default function App() {
   useEffect(() => localStorage.setItem('aibc-tab', tab), [tab])
   useEffect(() => saveWeights(weights), [weights])
   useEffect(() => saveCategoryPalette(categoryPalette), [categoryPalette])
+  useEffect(() => localStorage.setItem('aibc-concept-node-color-mode', conceptNodeColorMode), [conceptNodeColorMode])
   useEffect(() => {
     if (yearRange) localStorage.setItem('aibc-year-range', JSON.stringify(yearRange))
     else localStorage.removeItem('aibc-year-range')
@@ -179,14 +184,14 @@ export default function App() {
 
       {toast && <div className="app-toast" role="status">{toast}</div>}
 
-      {tab === 'home' && (
+      <div className={tab === 'home' ? undefined : 'home-tab-inactive'}>
         <HomePage
           onOpenRun={(id) => {
             setRunId(id)
             setTab('report')
           }}
         />
-      )}
+      </div>
       {tab === 'report' && (
         <ReportView
           runId={runId} onRunIdChange={setRunId} weights={weights}
@@ -218,16 +223,20 @@ export default function App() {
           subqueryFilter={subqueryFilter} onSubqueryFilterChange={setSubqueryFilter}
         />
       )}
-      {tab === 'citations' && <CitationGraph />}
+      <div className={tab === 'chat' ? undefined : 'home-tab-inactive'}>
+        <ChatView runId={runId} onRunIdChange={setRunId} />
+      </div>
+      {tab === 'citations' && <CitationGraph nodeColorMode={conceptNodeColorMode} />}
       {tab === 'concepts' && (
         <ConceptGraph
           runId={runId} onRunIdChange={setRunId}
           yearRange={yearRange} includeUndated={includeUndated}
           slider={slider}
           subqueryFilter={subqueryFilter} onSubqueryFilterChange={setSubqueryFilter}
+          nodeColorMode={conceptNodeColorMode}
         />
       )}
-      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} lang={lang} setLang={setLang} mode={mode} setMode={setMode} theme={theme} setTheme={setTheme} density={density} setDensity={setDensity} claudeKeySaved={claudeKeySaved} onSaveClaudeKey={saveClaudeKey} weights={weights} setWeights={setWeights} categoryPalette={categoryPalette} setCategoryPalette={setCategoryPalette} currentRunId={runId} onRunImported={(id) => { setRunId(id); setShowSettings(false); setTab('report') }} />}
+      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} lang={lang} setLang={setLang} mode={mode} setMode={setMode} theme={theme} setTheme={setTheme} density={density} setDensity={setDensity} claudeKeySaved={claudeKeySaved} onSaveClaudeKey={saveClaudeKey} weights={weights} setWeights={setWeights} categoryPalette={categoryPalette} setCategoryPalette={setCategoryPalette} conceptNodeColorMode={conceptNodeColorMode} setConceptNodeColorMode={setConceptNodeColorMode} currentRunId={runId} onRunImported={(id) => { setRunId(id); setShowSettings(false); setTab('report') }} />}
     </div>
   )
 }

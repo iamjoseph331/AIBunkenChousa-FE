@@ -1,6 +1,6 @@
 import type { Confidence, EvidenceStatus, PaperCategoryAssignment, StanceLabel } from '../api'
 import { useT } from '../i18n'
-import { categoryVar } from '../categoryColor'
+import { categoryVar, primaryCategory, type ConceptNodeColorMode } from '../categoryColor'
 
 function arcPath(radius: number, start: number, end: number): string {
   const point = (angle: number) => [Math.cos(angle) * radius, Math.sin(angle) * radius]
@@ -12,12 +12,16 @@ function arcPath(radius: number, start: number, end: number): string {
 /** SVG node fill split by category confidence, with the independent stance
  * encoded by its outline. This keeps multi-label categorisation legible in the
  * graphs without losing the query-position signal. */
-export function CategoryPie({ categories, radius, stance, selected = false }: { categories?: PaperCategoryAssignment[]; radius: number; stance?: StanceLabel | null; selected?: boolean }) {
+export function CategoryPie({ categories, radius, stance, selected = false, mode = 'pie' }: { categories?: PaperCategoryAssignment[]; radius: number; stance?: StanceLabel | null; selected?: boolean; mode?: ConceptNodeColorMode }) {
   const slices = (categories ?? []).slice(0, 8)
   const total = slices.reduce((sum, category) => sum + Math.max(category.confidence || 0, 0.1), 0)
   let angle = -Math.PI / 2
   const outline = stance ? `var(--st-${stance === 'not_addressed' ? 'na' : stance}-ink)` : 'var(--border-strong)'
   if (!slices.length) return <circle r={radius} className={`category-pie-outline${selected ? ' selected' : ''}`} fill="var(--surface-3)" stroke={outline} strokeWidth={1.8} />
+  if (mode === 'primary') {
+    const primary = primaryCategory(categories)
+    return <circle r={radius} className={`category-pie-outline${selected ? ' selected' : ''}`} fill={primary ? categoryVar(primary.color_slot) : 'var(--surface-3)'} stroke={outline} strokeWidth={2.2}><title>{primary?.name ?? ''}</title></circle>
+  }
   return <g><title>{slices.map((c) => c.name).join(' · ')}</title>{slices.map((category) => {
     const next = angle + (Math.PI * 2 * Math.max(category.confidence || 0, 0.1)) / total
     const path = arcPath(radius, angle, next)

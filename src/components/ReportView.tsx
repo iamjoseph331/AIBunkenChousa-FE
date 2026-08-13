@@ -145,7 +145,7 @@ export default function ReportView({
           <span>{t.report.model}: {currentRun.model}</span>
           <span>{t.report.lang}: {currentRun.lang}</span>
           <span>{t.report.mode}: {currentRun.mode}</span>
-          <span>{t.report.total}: ${currentRun.total_usd.toFixed(3)}</span>
+          <span title={t.report.runCostHint}>{t.report.runCost}: ${currentRun.total_usd.toFixed(3)}</span>
           <span>{t.report.time}: {formatDuration(currentRun.elapsed_seconds)}</span>
           {currentRun.status !== 'done' && <span className={`run-status ${currentRun.status}`}>{currentRun.status}</span>}
         </div>

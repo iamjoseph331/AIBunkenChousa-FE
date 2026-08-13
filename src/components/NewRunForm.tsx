@@ -24,6 +24,7 @@ export default function NewRunForm({ onDone, onClose, initialQuery, initialCateg
   const [error, setError] = useState<string | null>(null)
   const [log, setLog] = useState<string[]>([])
   const [runId, setRunId] = useState<number | null>(null)
+  const [loadingLastRun, setLoadingLastRun] = useState(false)
   const [progress, setProgress] = useState<{ done: number; total: number | null; label: string } | null>(null)
   const [startedAt, setStartedAt] = useState<number | null>(null)
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
@@ -81,6 +82,41 @@ export default function NewRunForm({ onDone, onClose, initialQuery, initialCateg
       setError(String(e instanceof Error ? e.message : e))
     } finally {
       setBusy('idle')
+    }
+  }
+
+  async function useLastRunParameters() {
+    setLoadingLastRun(true)
+    setError(null)
+    try {
+      const [lastRun] = await api.runs()
+      if (!lastRun) throw new Error(t.newRun.noPreviousRun)
+      const [categoryData, subqueryData] = await Promise.all([
+        api.categories(lastRun.id),
+        api.subqueries(lastRun.id),
+      ])
+      setReq((current) => ({
+        ...current,
+        query: lastRun.query ?? '',
+        lang: lastRun.lang,
+        model: lastRun.model,
+        mode: lastRun.mode === 'batch' ? 'batch' : 'sync',
+      }))
+      setCategories((categoryData.set?.categories ?? []).map((category) => ({
+        name: category.name,
+        definition: category.definition,
+        color_slot: category.color_slot,
+      })))
+      setSubqueries((subqueryData.set?.subqueries ?? []).map((subquery) => ({
+        id: subquery.id,
+        label: subquery.label,
+        question: subquery.question ?? '',
+      })))
+      setEstimate(null)
+    } catch (e) {
+      setError(String(e instanceof Error ? e.message : e))
+    } finally {
+      setLoadingLastRun(false)
     }
   }
 
@@ -145,11 +181,39 @@ export default function NewRunForm({ onDone, onClose, initialQuery, initialCateg
     }
   }
 
+  // Once a run is underway, keep its monitor available without holding the
+  // setup dialog over the rest of the app. The fixed panel remains mounted so
+  // its EventSource and progress state continue uninterrupted.
+  if (busy === 'running' && progress) {
+    return (
+      <aside className="run-monitor" aria-label={t.newRun.progressTitle} aria-live="polite" tabIndex={0}>
+        <div className="run-monitor-tab">▸ <span>{t.newRun.progressTitle}</span></div>
+        <div className="run-monitor-content">
+          <div className="run-progress run-monitor-progress">
+            <div className="run-progress-head">
+              <div>
+                <strong>{t.newRun.progressTitle}</strong>
+                <span>{req.mode === 'batch' && progress.label === t.newRun.batchWaiting ? t.newRun.batchProgressHelp : t.newRun.progressHelp}</span>
+              </div>
+              <time>{t.newRun.elapsed.replace('{time}', formatDuration(elapsedSeconds))}</time>
+            </div>
+            <ProgressBar value={progress.done} total={progress.total} label={progress.label} />
+            {lastPaper && <div className="run-progress-current">{t.newRun.currentPaper}: <strong>{lastPaper}</strong></div>}
+          </div>
+          {log.length > 0 && <pre className="run-log run-monitor-log">{log.join('\n')}</pre>}
+        </div>
+      </aside>
+    )
+  }
+
   return (
     <div className="modal-backdrop" onClick={busy === 'running' ? undefined : onClose}>
       <div className="modal newrun" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <h2>{t.newRun.title}</h2>
+          <button className="link newrun-last-params" onClick={useLastRunParameters} disabled={busy !== 'idle' || loadingLastRun}>
+            {loadingLastRun ? t.newRun.loadingLastRun : t.newRun.useLastRun}
+          </button>
           <button className="modal-close" onClick={onClose} disabled={busy === 'running'}>✕</button>
         </div>
 
@@ -284,20 +348,6 @@ export default function NewRunForm({ onDone, onClose, initialQuery, initialCateg
         )}
 
         {error && <div className="form-error">{error}</div>}
-
-        {progress && (
-          <section className="run-progress" aria-live="polite">
-            <div className="run-progress-head">
-              <div>
-                <strong>{t.newRun.progressTitle}</strong>
-                <span>{req.mode === 'batch' && progress.label === t.newRun.batchWaiting ? t.newRun.batchProgressHelp : t.newRun.progressHelp}</span>
-              </div>
-              <time>{t.newRun.elapsed.replace('{time}', formatDuration(elapsedSeconds))}</time>
-            </div>
-            <ProgressBar value={progress.done} total={progress.total} label={progress.label} />
-            {lastPaper && <div className="run-progress-current">{t.newRun.currentPaper}: <strong>{lastPaper}</strong></div>}
-          </section>
-        )}
 
         {log.length > 0 && (
           <pre className="run-log">

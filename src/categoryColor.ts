@@ -5,6 +5,8 @@
 
 import type { CategoryDefStored, PaperCategoryAssignment } from './api'
 
+export type ConceptNodeColorMode = 'primary' | 'pie'
+
 export const DEFAULT_CATEGORY_PALETTE = [
   '#4f6ad6', '#0c9c78', '#c66a1a', '#b25aa8', '#c02e24',
   '#7d6ac2', '#0f7791', '#8f8b1c', '#c33e75', '#5e6773',

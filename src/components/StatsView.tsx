@@ -301,10 +301,13 @@ export default function StatsView({ runId, onRunIdChange, yearRange, includeUnda
   // key on `visibleRows` so a drag flows through every chart in one render.
   const visibleRows = useMemo(() => filterByYear(rows, yearRange, includeUndated).filter((row) => matchesSubqueryFilter(row, subqueryFilter)), [rows, yearRange, includeUndated, subqueryFilter])
 
-  const byType = useMemo(() => topN(tally(visibleRows, (r) => r.pub_type), 10), [visibleRows])
-  const byField = useMemo(() => topN(tally(visibleRows, (r) => r.primary_field), 10), [visibleRows])
-  const byVenue = useMemo(() => topN(tally(visibleRows, (r) => r.venue_name), 12), [visibleRows])
-  const byPublisher = useMemo(() => topN(tally(visibleRows, (r) => r.publisher), 10), [visibleRows])
+  // Keep rows without an OpenAlex match visible as "Not reported". Previously
+  // these charts silently dropped them, making a 410-paper run appear to have
+  // only the ~200 papers that had enrichment metadata.
+  const byType = useMemo(() => topN(tally(visibleRows, (r) => r.pub_type ?? t.stats.notReported), 10), [visibleRows, t])
+  const byField = useMemo(() => topN(tally(visibleRows, (r) => r.primary_field ?? t.stats.notReported), 10), [visibleRows, t])
+  const byVenue = useMemo(() => topN(tally(visibleRows, (r) => r.venue_name ?? t.stats.notReported), 12), [visibleRows, t])
+  const byPublisher = useMemo(() => topN(tally(visibleRows, (r) => r.publisher ?? t.stats.notReported), 10), [visibleRows, t])
   const byCountry = useMemo(
     () => topN(tallyMulti(visibleRows, (r) => r.author_countries), 15, (c) => countryName(c)),
     [visibleRows],
@@ -344,11 +347,11 @@ export default function StatsView({ runId, onRunIdChange, yearRange, includeUnda
     // byYear tallies the UNFILTERED rows so users see the full histogram; the
     // slider handles the filtering visually. Otherwise the year bar-chart
     // would collapse into the visible slice and lose its context.
-    const t = tally(rows, (r) => (r.year != null ? String(r.year) : null))
-    return [...t.entries()]
-      .sort((a, b) => Number(a[0]) - Number(b[0]))
+    const counts = tally(rows, (r) => (r.year != null ? String(r.year) : t.stats.notReported))
+    return [...counts.entries()]
+      .sort(([a], [b]) => a === t.stats.notReported ? 1 : b === t.stats.notReported ? -1 : Number(a) - Number(b))
       .map(([k, n]) => ({ key: k, label: k, n }))
-  }, [rows])
+  }, [rows, t])
 
   const nEnriched = useMemo(() => visibleRows.filter((r) => r.openalex_id).length, [visibleRows])
   const uniqueCountries = useMemo(() => {

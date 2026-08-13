@@ -19,7 +19,7 @@ import { CategoryPie } from './bits'
 import type { SubqueryFilter } from '../subqueryFilter'
 import { matchesSubqueryFilter } from '../subqueryFilter'
 import SubqueryFilterControl from './SubqueryFilterControl'
-import { primaryCategory } from '../categoryColor'
+import { primaryCategory, type ConceptNodeColorMode } from '../categoryColor'
 
 const VW = 960
 const VH = 620
@@ -43,6 +43,7 @@ interface Props {
   slider?: ReactNode
   subqueryFilter: SubqueryFilter | null
   onSubqueryFilterChange: (filter: SubqueryFilter | null) => void
+  nodeColorMode: ConceptNodeColorMode
 }
 
 /** Phase 3 concept graph. Nodes are a run's most-relevant papers (colored by stance
@@ -52,7 +53,7 @@ interface Props {
  *
  * v0.3: adds a year filter (App-level slider) and a cluster-by selector that
  * feeds the shared graphLayout `groups` param to pull same-answer nodes closer. */
-export default function ConceptGraph({ runId, onRunIdChange, yearRange, includeUndated, slider, subqueryFilter, onSubqueryFilterChange }: Props) {
+export default function ConceptGraph({ runId, onRunIdChange, yearRange, includeUndated, slider, subqueryFilter, onSubqueryFilterChange, nodeColorMode }: Props) {
   const t = useT()
   const [runs, setRuns] = useState<Run[]>([])
   const [graph, setGraph] = useState<ConceptGraphData | null>(null)
@@ -415,7 +416,11 @@ export default function ConceptGraph({ runId, onRunIdChange, yearRange, includeU
               preserveAspectRatio="xMidYMid meet"
               onPointerMove={onPointerMove}
               onPointerUp={() => { dragRef.current = null }}
-              onClick={() => { setSelNode(null); setSelEdge(null) }}
+              onClickCapture={(event) => {
+                const key = (event.target as Element).closest('[data-node-key]')?.getAttribute('data-node-key')
+                setSelNode(key ?? null)
+                setSelEdge(null)
+              }}
             >
               {drawn.map((e, i) => {
                 const a = pos[e.source]
@@ -448,10 +453,17 @@ export default function ConceptGraph({ runId, onRunIdChange, yearRange, includeU
                     key={n.key}
                     transform={`translate(${p.x},${p.y})`}
                     className={`cite-node cnode-${n.stance ?? 'na'}${isSel ? ' sel' : ''}${dim ? ' dim' : ''}`}
-                    onPointerDown={(e) => onPointerDown(n.key, e)}
-                    onClick={(e) => { e.stopPropagation(); setSelNode(n.key); setSelEdge(null) }}
                   >
-                    <CategoryPie categories={n.categories} radius={r} stance={n.stance} selected={isSel} />
+                    <CategoryPie categories={n.categories} radius={r} stance={n.stance} selected={isSel} mode={nodeColorMode} />
+                    <circle
+                      r={r + 7}
+                      className="graph-node-hit"
+                      data-node-key={n.key}
+                      fill="transparent"
+                      pointerEvents="all"
+                      onPointerDown={(e) => onPointerDown(n.key, e)}
+                      onMouseDown={(e) => { e.stopPropagation(); setSelNode(n.key); setSelEdge(null) }}
+                    />
                     <text y={r + 13} className="cite-label">
                       {n.title.length > 24 ? n.title.slice(0, 23) + '…' : n.title}
                     </text>
