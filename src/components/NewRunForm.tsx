@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { api, type CategoryDef, type Estimate, type RunRequest, type SubqueryDef } from '../api'
+import { api, getLLMSettings, type CategoryDef, type Estimate, type RunRequest, type SubqueryDef } from '../api'
 import { useT } from '../i18n'
 import { formatDuration } from '../time'
 import ProgressBar from './ProgressBar'
@@ -16,8 +16,10 @@ interface Props {
 
 export default function NewRunForm({ onDone, onClose, initialQuery, initialCategories = [], initialSubqueries = [] }: Props) {
   const t = useT()
+  const llm = getLLMSettings()
   const [req, setReq] = useState<RunRequest>({
-    query: initialQuery ?? '', lang: 'auto', model: MODELS[0], mode: 'sync', categories: [],
+    query: initialQuery ?? '', lang: 'auto', provider: llm.provider, model: llm.model,
+    mode: 'sync', categories: [],
   })
   const [estimate, setEstimate] = useState<Estimate | null>(null)
   const [busy, setBusy] = useState<'idle' | 'estimating' | 'running'>('idle')
@@ -99,8 +101,9 @@ export default function NewRunForm({ onDone, onClose, initialQuery, initialCateg
         ...current,
         query: lastRun.query ?? '',
         lang: lastRun.lang,
-        model: lastRun.model,
-        mode: lastRun.mode === 'batch' ? 'batch' : 'sync',
+        provider: llm.provider,
+        model: llm.model,
+        mode: llm.provider === 'anthropic' && lastRun.mode === 'batch' ? 'batch' : 'sync',
       }))
       setCategories((categoryData.set?.categories ?? []).map((category) => ({
         name: category.name,
@@ -287,7 +290,7 @@ export default function NewRunForm({ onDone, onClose, initialQuery, initialCateg
           <label className="field">
             <span>{t.newRun.model}</span>
             <select value={req.model} onChange={(e) => patch({ model: e.target.value })} disabled={busy === 'running'}>
-              {MODELS.map((m) => <option key={m} value={m}>{m}</option>)}
+              {(llm.provider === 'anthropic' ? MODELS : [llm.model]).map((m) => <option key={m} value={m}>{m}</option>)}
             </select>
           </label>
           <label className="field">
@@ -298,7 +301,7 @@ export default function NewRunForm({ onDone, onClose, initialQuery, initialCateg
               disabled={busy === 'running'}
             >
               <option value="sync">{t.newRun.modeSync}</option>
-              <option value="batch">{t.newRun.modeBatch}</option>
+              <option value="batch" disabled={llm.provider !== 'anthropic'}>{t.newRun.modeBatch}</option>
             </select>
           </label>
           <label className="field field-limit">
@@ -328,7 +331,9 @@ export default function NewRunForm({ onDone, onClose, initialQuery, initialCateg
               </div>
               <div className="estimate-item estimate-cost">
                 <span>{t.newRun.estimateCost}</span>
-                {req.mode === 'batch' ? (
+                {estimate.provider === 'openai' ? (
+                  <><strong>{t.newRun.estimateUnpriced}</strong><small>$0 {t.newRun.estimateCost.toLowerCase()}</small></>
+                ) : req.mode === 'batch' ? (
                   <>
                     <strong>~${(estimate.usd_est / 2).toFixed(2)}</strong>
                     <small>{t.newRun.batchCost.replace('{amount}', `$${estimate.usd_est.toFixed(2)}`)}</small>

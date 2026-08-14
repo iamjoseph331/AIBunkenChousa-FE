@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { api, type Run, type Settings, type UnresolvedMetadataPaper } from '../api'
+import { api, type LLMSettings, type Run, type Settings, type UnresolvedMetadataPaper } from '../api'
 import type { Lang } from '../i18n'
 import { useT } from '../i18n'
 import { DEFAULT_WEIGHTS, type ImportanceWeights } from '../importance'
@@ -19,8 +19,9 @@ interface Props {
   setTheme: (theme: string) => void
   density: Density
   setDensity: (density: Density) => void
-  claudeKeySaved: boolean
-  onSaveClaudeKey: (value: string) => void
+  llm: LLMSettings
+  llmSaved: boolean
+  onSaveLlm: (value: LLMSettings) => void
   weights: ImportanceWeights
   setWeights: (weights: ImportanceWeights) => void
   categoryPalette: string[]
@@ -36,7 +37,7 @@ const SECTIONS: Section[] = ['language', 'api', 'appearance', 'ranking', 'corpus
 export default function SettingsModal(props: Props) {
   const t = useT()
   const [section, setSection] = useState<Section>('language')
-  const [keyDraft, setKeyDraft] = useState('')
+  const [llmDraft, setLlmDraft] = useState<LLMSettings>(props.llm)
   const [openAlexKeyDraft, setOpenAlexKeyDraft] = useState('')
   const [savingOpenAlexKey, setSavingOpenAlexKey] = useState(false)
   const [openAlexKeyMessage, setOpenAlexKeyMessage] = useState<string | null>(null)
@@ -202,8 +203,11 @@ export default function SettingsModal(props: Props) {
 
           {section === 'api' && (
             <div className="settings-section settings-api">
-              <form onSubmit={(event) => { event.preventDefault(); props.onSaveClaudeKey(keyDraft); setKeyDraft('') }}>
-                <label className="field"><span>{t.controls.claudeApiKey}</span><input type="password" value={keyDraft} onChange={(event) => setKeyDraft(event.target.value)} placeholder={props.claudeKeySaved ? t.controls.claudeApiKeySavedPlaceholder : t.controls.claudeApiKeyPlaceholder} spellCheck={false} autoComplete="off" /></label>
+              <form onSubmit={(event) => { event.preventDefault(); props.onSaveLlm(llmDraft) }}>
+                <label className="field"><span>LLM provider</span><select value={llmDraft.provider} onChange={(event) => { const provider = event.target.value as LLMSettings['provider']; setLlmDraft({ ...llmDraft, provider, model: provider === 'anthropic' ? 'claude-opus-4-8' : llmDraft.model.startsWith('claude-') ? 'qwen3:8b' : llmDraft.model }) }}><option value="anthropic">Anthropic</option><option value="openai">OpenAI-compatible</option></select></label>
+                {llmDraft.provider === 'openai' && <label className="field"><span>Base URL</span><input value={llmDraft.baseUrl} onChange={(event) => setLlmDraft({ ...llmDraft, baseUrl: event.target.value })} placeholder="http://localhost:11434/v1" spellCheck={false} /></label>}
+                <label className="field"><span>{t.newRun.model}</span>{llmDraft.provider === 'anthropic' ? <select value={llmDraft.model} onChange={(event) => setLlmDraft({ ...llmDraft, model: event.target.value })}><option value="claude-opus-4-8">claude-opus-4-8</option><option value="claude-sonnet-5">claude-sonnet-5</option><option value="claude-haiku-4-5">claude-haiku-4-5</option></select> : <input value={llmDraft.model} onChange={(event) => setLlmDraft({ ...llmDraft, model: event.target.value })} placeholder="qwen3:8b" spellCheck={false} />}</label>
+                <label className="field"><span>{llmDraft.provider === 'anthropic' ? t.controls.claudeApiKey : 'API key (optional)'}</span><input type="password" value={llmDraft.apiKey} onChange={(event) => setLlmDraft({ ...llmDraft, apiKey: event.target.value })} placeholder={props.llmSaved ? t.controls.claudeApiKeySavedPlaceholder : llmDraft.provider === 'anthropic' ? t.controls.claudeApiKeyPlaceholder : 'optional'} spellCheck={false} autoComplete="off" /></label>
                 <button className="primary" type="submit">{t.controls.saveClaudeApiKey}</button>
               </form>
               <form onSubmit={(event) => { event.preventDefault(); void saveOpenAlexKey() }}>

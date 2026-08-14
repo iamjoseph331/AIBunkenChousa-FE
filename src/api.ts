@@ -151,6 +151,7 @@ export interface Run {
   query: string | null
   lang: string
   model: string
+  provider?: LLMProvider
   mode: string
   status: 'running' | 'done' | 'error'
   batch_id: string | null
@@ -184,6 +185,8 @@ export interface Estimate {
   duration_est_source: 'model_mode' | 'mode' | 'none'
   duration_est_samples: number
   model: string
+  provider: LLMProvider
+  approximate_tokens: boolean
 }
 
 export interface CategoryDef {
@@ -203,6 +206,7 @@ export interface RunRequest {
   query?: string | null
   lang?: string
   model?: string
+  provider?: LLMProvider
   mode?: 'sync' | 'batch'
   limit?: number | null
   // v0.2: user-defined categories for classification. Server persists them
@@ -422,43 +426,37 @@ export interface ConceptEstimate {
   usd_est_batch: number
 }
 
-const CLAUDE_KEY_STORAGE = 'aibc-claude-api-key'
+export type LLMProvider = 'anthropic' | 'openai'
+export interface LLMSettings { provider: LLMProvider; baseUrl: string; model: string; apiKey: string }
+const LLM_STORAGE = 'aibc-llm-settings'
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
-let claudeApiKey = localStorage.getItem(CLAUDE_KEY_STORAGE) || ''
-
-export function setClaudeApiKey(key: string): boolean {
-  claudeApiKey = key.trim()
-  if (claudeApiKey) {
-    localStorage.setItem(CLAUDE_KEY_STORAGE, claudeApiKey)
-    return true
-  } else {
-    localStorage.removeItem(CLAUDE_KEY_STORAGE)
-    return false
-  }
+const DEFAULT_LLM: LLMSettings = { provider: 'anthropic', baseUrl: 'http://localhost:11434/v1', model: 'claude-opus-4-8', apiKey: localStorage.getItem('aibc-claude-api-key') || '' }
+let llmSettings: LLMSettings = (() => {
+  try { return { ...DEFAULT_LLM, ...JSON.parse(localStorage.getItem(LLM_STORAGE) || '{}') } }
+  catch { return DEFAULT_LLM }
+})()
+export function getLLMSettings(): LLMSettings { return { ...llmSettings } }
+export function setLLMSettings(value: LLMSettings): boolean {
+  llmSettings = { ...value, baseUrl: value.baseUrl.trim().replace(/\/$/, ''), model: value.model.trim(), apiKey: value.apiKey.trim() }
+  localStorage.setItem(LLM_STORAGE, JSON.stringify(llmSettings))
+  return hasLLMConnection()
+}
+export function hasLLMConnection() { return Boolean(llmSettings.model && (llmSettings.provider === 'openai' ? llmSettings.baseUrl : llmSettings.apiKey)) }
+function llmHeaders(): Record<string, string> {
+  if (!hasLLMConnection()) throw new Error('Configure your LLM connection in Settings before starting a model action.')
+  return { 'X-LLM-Provider': llmSettings.provider, 'X-LLM-Base-URL': llmSettings.baseUrl,
+    'X-LLM-Model': llmSettings.model, ...(llmSettings.apiKey ? { 'X-LLM-API-Key': llmSettings.apiKey } : {}) }
 }
 
-export function hasClaudeApiKey() {
-  return Boolean(claudeApiKey)
-}
-
-function requireClaudeApiKey() {
-  if (!claudeApiKey) {
-    throw new Error('Paste and save your Claude API key before starting a paid model action.')
-  }
-}
-
-async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}/api${path}`)
+async function get<T>(path: string, options: { llm?: boolean } = {}): Promise<T> {
+  const res = await fetch(`${API_BASE}/api${path}`, { headers: options.llm ? llmHeaders() : {} })
   if (!res.ok) throw new Error(`${res.status} ${res.statusText} — ${path}`)
   return res.json() as Promise<T>
 }
 
-async function post<T>(path: string, body: unknown, options: { claudeKey?: boolean } = {}): Promise<T> {
+async function post<T>(path: string, body: unknown, options: { llm?: boolean } = {}): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (options.claudeKey) {
-    requireClaudeApiKey()
-    headers['X-Claude-API-Key'] = claudeApiKey
-  }
+  if (options.llm) Object.assign(headers, llmHeaders())
   const res = await fetch(`${API_BASE}/api${path}`, {
     method: 'POST',
     headers,
@@ -485,10 +483,10 @@ export const api = {
   pages: (key: string) => get<{ number: number; section: string | null; text: string; low_quality: number }[]>(
     `/papers/${encodeURIComponent(key)}/pages`,
   ),
-  estimate: (req: RunRequest) => post<Estimate>('/runs/estimate', req, { claudeKey: true }),
+  estimate: (req: RunRequest) => post<Estimate>('/runs/estimate', req, { llm: true }),
   rerank: (runId: number, query: string) => post<RerankResult>(`/runs/${runId}/rerank`, { query }),
-  startRun: (req: RunRequest) => post<{ run_id: number; status: string; n_papers: number; mode: string }>('/runs', req, { claudeKey: true }),
-  addPapers: (runId: number) => post<{ run_id: number; status: string; n_candidates: number }>(`/runs/${runId}/add-papers`, {}, { claudeKey: true }),
+  startRun: (req: RunRequest) => post<{ run_id: number; status: string; n_papers: number; mode: string }>('/runs', req, { llm: true }),
+  addPapers: (runId: number) => post<{ run_id: number; status: string; n_candidates: number }>(`/runs/${runId}/add-papers`, {}, { llm: true }),
   pdfUrl: (key: string) => `${API_BASE}/api/papers/${encodeURIComponent(key)}/pdf`,
   exportUrl: (runId: number, fmt: 'xlsx' | 'csv', keys?: string[]) => {
     const q = keys && keys.length ? `?keys=${encodeURIComponent(keys.join(','))}` : ''
@@ -531,21 +529,18 @@ export const api = {
 
   // concept graph (Phase 3, v0.2 Step 8b adds an `n` param for the subset size)
   conceptGraph: (runId: number, n?: number) =>
-    get<ConceptGraphData>(`/runs/${runId}/concept/graph${n ? `?n=${n}` : ''}`),
+    get<ConceptGraphData>(`/runs/${runId}/concept/graph${n ? `?n=${n}` : ''}`, { llm: true }),
   conceptEstimate: (runId: number, seed: ConceptSeed = 'citation', n?: number) =>
-    get<ConceptEstimate>(`/runs/${runId}/concept/estimate?seed=${seed}${n ? `&n=${n}` : ''}`),
+    get<ConceptEstimate>(`/runs/${runId}/concept/estimate?seed=${seed}${n ? `&n=${n}` : ''}`, { llm: true }),
   buildConcept: (runId: number, seed: ConceptSeed = 'citation', n?: number) =>
     post<{ status: string }>(
-      `/runs/${runId}/concept/build?seed=${seed}${n ? `&n=${n}` : ''}`, {}, { claudeKey: true },
+      `/runs/${runId}/concept/build?seed=${seed}${n ? `&n=${n}` : ''}`, {}, { llm: true },
     ),
   conceptEventsUrl: (runId: number) => `${API_BASE}/api/runs/${runId}/concept/events`,
 
   // enrichment (v0.2 Step 1) — free, no Claude key
   enrichStatus: () => get<EnrichStatus>('/enrich/status'),
-  buildEnrich: (keys?: string[]) => {
-    const q = keys && keys.length ? `?keys=${encodeURIComponent(keys.join(','))}` : ''
-    return post<{ status: string }>(`/enrich/build${q}`, {})
-  },
+  buildEnrich: (keys?: string[]) => post<{ status: string }>('/enrich/build', { keys: keys ?? [] }),
   enrichEventsUrl: () => `${API_BASE}/api/enrich/events`,
   paperEnrich: (key: string) => get<EnrichRow>(`/papers/${encodeURIComponent(key)}/enrich`),
   unresolvedMetadata: () => get<{ papers: UnresolvedMetadataPaper[] }>('/metadata/unresolved'),
@@ -562,7 +557,7 @@ export const api = {
     ),
   classifyCategories: (runId: number) =>
     post<{ status: string; run_id: number }>(
-      `/runs/${runId}/categories/classify`, {}, { claudeKey: true },
+      `/runs/${runId}/categories/classify`, {}, { llm: true },
     ),
   categoryEventsUrl: (runId: number) => `${API_BASE}/api/runs/${runId}/categories/events`,
   actOnProposal: (runId: number, proposalId: number, action: 'accept' | 'reject' | 'merge', into?: string) =>
@@ -573,7 +568,7 @@ export const api = {
   reclassifyPaper: (paperKey: string, runId: number) =>
     post<{ set_id: number; paper_key: string; n_assigned: number; n_proposed: number; total_usd: number }>(
       `/papers/${encodeURIComponent(paperKey)}/categories/reclassify?run_id=${runId}`,
-      {}, { claudeKey: true },
+      {}, { llm: true },
     ),
   paperCategories: (runId: number, key: string) =>
     get<PaperCategoryAssignment[]>(`/runs/${runId}/papers/${encodeURIComponent(key)}/categories`),
@@ -597,12 +592,11 @@ export const api = {
     onChunk: (delta: string) => void,
     opts?: { signal?: AbortSignal; model?: string },
   ): Promise<void> => {
-    requireClaudeApiKey()
     const res = await fetch(`${API_BASE}/api/runs/${runId}/chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Claude-API-Key': claudeApiKey,
+        ...llmHeaders(),
       },
       body: JSON.stringify({ messages, model: opts?.model }),
       signal: opts?.signal,

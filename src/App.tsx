@@ -9,7 +9,7 @@ import ChatView from './components/ChatView'
 import SettingsModal from './components/SettingsModal'
 import TimelineSlider from './components/TimelineSlider'
 import { useLang, useT } from './i18n'
-import { api, hasClaudeApiKey, setClaudeApiKey, type ReportRow } from './api'
+import { api, getLLMSettings, hasLLMConnection, setLLMSettings, type LLMSettings, type ReportRow } from './api'
 import { loadWeights, saveWeights, type ImportanceWeights } from './importance'
 import { yearBounds, type YearRange } from './time'
 import type { SubqueryFilter } from './subqueryFilter'
@@ -42,7 +42,8 @@ export default function App() {
     () => (localStorage.getItem('aibc-density') as 'compact' | 'comfortable') || 'comfortable',
   )
   const [tab, setTab] = useState<Tab>(() => (localStorage.getItem('aibc-tab') as Tab) || 'home')
-  const [claudeKeySaved, setClaudeKeySaved] = useState(() => hasClaudeApiKey())
+  const [llm, setLlm] = useState<LLMSettings>(() => getLLMSettings())
+  const [llmSaved, setLlmSaved] = useState(() => hasLLMConnection())
   const [showSettings, setShowSettings] = useState(false)
   const [weights, setWeights] = useState<ImportanceWeights>(() => loadWeights())
   const [categoryPalette, setCategoryPalette] = useState<string[]>(() => loadCategoryPalette())
@@ -113,9 +114,10 @@ export default function App() {
     return () => { cancelled = true }
   }, [runId])
 
-  function saveClaudeKey(value: string) {
-    const saved = setClaudeApiKey(value)
-    setClaudeKeySaved(saved)
+  function saveLlm(value: LLMSettings) {
+    const saved = setLLMSettings(value)
+    setLlm(getLLMSettings())
+    setLlmSaved(saved)
     setToast(saved ? t.controls.claudeApiKeySavedToast : t.controls.claudeApiKeyClearedToast)
   }
 
@@ -236,7 +238,7 @@ export default function App() {
           nodeColorMode={conceptNodeColorMode}
         />
       )}
-      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} lang={lang} setLang={setLang} mode={mode} setMode={setMode} theme={theme} setTheme={setTheme} density={density} setDensity={setDensity} claudeKeySaved={claudeKeySaved} onSaveClaudeKey={saveClaudeKey} weights={weights} setWeights={setWeights} categoryPalette={categoryPalette} setCategoryPalette={setCategoryPalette} conceptNodeColorMode={conceptNodeColorMode} setConceptNodeColorMode={setConceptNodeColorMode} currentRunId={runId} onRunImported={(id) => { setRunId(id); setShowSettings(false); setTab('report') }} />}
+      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} lang={lang} setLang={setLang} mode={mode} setMode={setMode} theme={theme} setTheme={setTheme} density={density} setDensity={setDensity} llm={llm} llmSaved={llmSaved} onSaveLlm={saveLlm} weights={weights} setWeights={setWeights} categoryPalette={categoryPalette} setCategoryPalette={setCategoryPalette} conceptNodeColorMode={conceptNodeColorMode} setConceptNodeColorMode={setConceptNodeColorMode} currentRunId={runId} onRunImported={(id) => { setRunId(id); setShowSettings(false); setTab('report') }} />}
     </div>
   )
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { api, hasClaudeApiKey, type Run } from '../api'
+import { api, getLLMSettings, hasLLMConnection, type Run } from '../api'
 import { useT } from '../i18n'
 
 interface Msg {
@@ -19,12 +19,17 @@ export default function ChatView({ runId, onRunIdChange }: Props) {
   const [runs, setRuns] = useState<Run[]>([])
   const [messages, setMessages] = useState<Msg[]>([])
   const [input, setInput] = useState('')
-  const [model, setModel] = useState('claude-sonnet-5')
+  const settings = getLLMSettings()
+  const [model, setModel] = useState(settings.provider === 'anthropic' ? 'claude-sonnet-5' : settings.model)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
-  const keySaved = hasClaudeApiKey()
+  const keySaved = hasLLMConnection()
+
+  useEffect(() => {
+    setModel(settings.provider === 'anthropic' ? 'claude-sonnet-5' : settings.model)
+  }, [settings.provider, settings.model])
 
   useEffect(() => {
     api.runs().then(
@@ -122,7 +127,7 @@ export default function ChatView({ runId, onRunIdChange }: Props) {
         <label className="run-picker">
           {t.chat.model}
           <select value={model} onChange={(e) => setModel(e.target.value)} disabled={busy}>
-            {CHAT_MODELS.map((value) => <option key={value} value={value}>{value.replace('claude-', '').replace(/-/g, ' ')}</option>)}
+            {(settings.provider === 'anthropic' ? CHAT_MODELS : [settings.model]).map((value) => <option key={value} value={value}>{value.replace('claude-', '').replace(/-/g, ' ')}</option>)}
           </select>
         </label>
         <button onClick={clear} disabled={messages.length === 0}>
