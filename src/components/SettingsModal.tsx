@@ -4,6 +4,7 @@ import type { Lang } from '../i18n'
 import { useT } from '../i18n'
 import { DEFAULT_WEIGHTS, type ImportanceWeights } from '../importance'
 import type { ConceptNodeColorMode } from '../categoryColor'
+import { setLocalPdfs } from '../localPdfs'
 
 type Section = 'language' | 'api' | 'appearance' | 'ranking' | 'corpus' | 'metadata'
 type Mode = 'light' | 'dark'
@@ -45,6 +46,7 @@ export default function SettingsModal(props: Props) {
   const [pathDraft, setPathDraft] = useState('')
   const [saving, setSaving] = useState(false)
   const [folderError, setFolderError] = useState<string | null>(null)
+  const [localPdfCount, setLocalPdfCount] = useState(0)
   const [runs, setRuns] = useState<Run[]>([])
   const [shareRunId, setShareRunId] = useState<number | null>(props.currentRunId)
   const [importing, setImporting] = useState(false)
@@ -259,6 +261,18 @@ export default function SettingsModal(props: Props) {
               <div className="folder-row"><input className="folder-input" type="text" value={pathDraft} onChange={(event) => setPathDraft(event.target.value)} placeholder="/Users/you/papers" spellCheck={false} /><button className="primary" onClick={saveFolder} disabled={saving || !pathDraft.trim()}>{saving ? t.settings.saving : t.settings.saveFolder}</button></div>
               {folderError && <div className="app-error home-inline-error">{folderError}</div>}
               {settings && <div className="folder-status">{settings.exists ? <span><b>{settings.n_pdfs}</b> {t.settings.pdfsFound} · <code>{settings.papers_dir}</code></span> : <span className="folder-missing">{t.settings.missing}: <code>{settings.papers_dir}</code></span>}</div>}
+
+              <div className="settings-divider" />
+              <span className="settings-label">{t.settings.localPreviewFolder}</span>
+              <p className="home-help">{t.settings.localPreviewFolderHelp}</p>
+              <label className="file-picker">
+                <input type="file" accept="application/pdf,.pdf" multiple ref={(node) => node?.setAttribute('webkitdirectory', '')} onChange={(event) => {
+                  setLocalPdfCount(setLocalPdfs(event.target.files ?? []))
+                  event.target.value = ''
+                }} />
+                <span className="file-picker-button">{t.settings.chooseLocalPreviewFolder}</span>
+                <span className="file-picker-hint">{localPdfCount ? t.settings.localPreviewSelected.replace('{count}', String(localPdfCount)) : t.settings.localPreviewNone}</span>
+              </label>
 
               <div className="settings-divider" />
               <span className="settings-label">{t.settings.metadata}</span>

@@ -1,5 +1,6 @@
 // Typed client for the AIBunkenChousa backend. Shapes mirror backend/app/db.py
 // and schema.py. All requests go to /api (Vite proxies to uvicorn in dev).
+import { localPdfUrl } from './localPdfs'
 
 export type StanceLabel =
   | 'supportive'
@@ -487,7 +488,7 @@ export const api = {
   rerank: (runId: number, query: string) => post<RerankResult>(`/runs/${runId}/rerank`, { query }),
   startRun: (req: RunRequest) => post<{ run_id: number; status: string; n_papers: number; mode: string }>('/runs', req, { llm: true }),
   addPapers: (runId: number) => post<{ run_id: number; status: string; n_candidates: number }>(`/runs/${runId}/add-papers`, {}, { llm: true }),
-  pdfUrl: (key: string) => `${API_BASE}/api/papers/${encodeURIComponent(key)}/pdf`,
+  pdfUrl: (key: string) => localPdfUrl(key) ?? `${API_BASE}/api/papers/${encodeURIComponent(key)}/pdf`,
   exportUrl: (runId: number, fmt: 'xlsx' | 'csv', keys?: string[]) => {
     const q = keys && keys.length ? `?keys=${encodeURIComponent(keys.join(','))}` : ''
     return `${API_BASE}/api/runs/${runId}/export.${fmt}${q}`
